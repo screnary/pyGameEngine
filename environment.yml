@@ -1,0 +1,9 @@
+name: pygame_lab
+
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pygame
+      - numpy
+      - py_trees
