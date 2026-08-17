@@ -1,47 +1,65 @@
-# Unknown-target Gap Exploration
+# Target-aware Gap Navigation and Commitment
 
 ## Scope
 
-Extend the current perception-aware Behavior Tree so an Agent with no target
-information explores through locally traversable openings instead of following
-one constant circular command. The feature remains a local reactive prototype,
-not a map, global planner, SLAM system, or target-memory implementation.
+Extend the local gap prototype so it serves both unknown-target exploration and
+obstacle bypass when target coordinates are globally available. A selected safe
+gap is followed to a fixed world-space entry waypoint instead of being replaced
+on every tick.
 
-Target information modes keep their existing meaning. Gap selection must never
-read Target Ground Truth in `perceived` mode.
+This remains local reactive navigation. It adds no map, target memory, visited
+space, global planner, SLAM, Gymnasium, or reinforcement learning.
 
-## Local Gap Perception
+## Gap Perception
 
-`AgentPerception` samples a small fixed number of rays across the configured
-Agent FOV. For each ray it calculates the free distance before the Agent center
-would reach an obstacle or the safe world boundary.
+`AgentPerception` continues sampling rays across the configured FOV. Obstacles
+are inflated by `Agent radius + gap_safety_margin`, and world bounds are
+contracted by the same amount. A ray through the inflated geometry is therefore
+a safe center path for the circular Agent.
 
-Before intersection checks, obstacle rectangles are inflated by:
+Gap extraction uses relative openness instead of only a fixed distance:
 
-```text
-Agent radius + configured safety margin
+```python
+opening_threshold = max(
+    gap_min_travel_distance,
+    max_sample_distance * gap_open_ratio,
+)
 ```
 
-The world is contracted by the same clearance. This converts the circular Agent
-into a point for the local ray checks and rejects openings narrower than the
-configured safe diameter.
+Consecutive rays meeting this threshold form a candidate. This prevents a short
+wall-facing corridor from joining a much longer side opening.
 
-Consecutive rays whose free distance meets the configured minimum travel
-distance form one local gap. A `PerceivedGap` contains:
+`PerceivedGap` contains:
 
 ```text
 bearing
 free_distance
 angular_width
+entry_position
 ```
 
-Each gap bearing is the midpoint of its angular interval. The selected
-`best_exploration_gap` has the greatest free distance at that midpoint; ties
-prefer the smaller absolute bearing and then the leftmost bearing for a stable
-result. An empty result means the current FOV contains no safe local opening.
+`entry_position` is an immutable `(x, y)` tuple on the gap center ray at
+`free_distance * gap_entry_ratio`. The ratio remains below one so the waypoint
+stays inside the observed free corridor.
 
-`PerceptionSnapshot` gains the detected gap tuple and selected best gap. Existing
-target and obstacle fields remain unchanged.
+`PerceptionSnapshot` exposes:
+
+```text
+traversable_gaps
+best_exploration_gap
+target_path_blocked
+best_target_gap
+```
+
+`best_exploration_gap` prefers the greatest free distance and then the smallest
+turn. `best_target_gap` is available only when target information exists, the
+target bearing is inside the current FOV, and the radius-safe ray toward the
+target is locally blocked. It selects the candidate with the smallest angular
+difference from the target bearing, breaking ties by greater free distance.
+
+If the target bearing is outside FOV, `target_path_blocked` is false. The normal
+Move To Target action is then allowed to turn the Agent toward the target before
+local blockage is assessed.
 
 ## Behavior Tree
 
@@ -52,76 +70,97 @@ Priority Selector (memory=False)
 ├── Obstacle Avoidance
 │   ├── Obstacle Threat?
 │   └── Avoid Obstacle
+├── Target Gap Navigation (Sequence, memory=True)
+│   ├── Target Available?
+│   ├── Target Path Blocked?
+│   ├── Target-aligned Gap?
+│   └── Move Through Target Gap
 ├── Target Pursuit
 │   ├── Target Available?
 │   └── Move To Target
-├── Gap Exploration (memory=False)
+├── Gap Exploration (Sequence, memory=True)
 │   ├── Traversable Gap?
-│   └── Move Through Gap
+│   └── Move Through Exploration Gap
 └── Search Target
 ```
 
-`TraversableGap` is a Condition. It reads only the current PerceptionSnapshot,
-selects no world objects, writes no command, and reports concise feedback.
+The reactive root always checks emergency avoidance first. Target Gap Navigation
+precedes direct Target Pursuit, so ground-truth target availability can no longer
+hide the gap branch.
 
-`MoveThroughGap` is a reactive Action. It steers from the selected relative
-bearing, uses a conservative exploration throttle, returns RUNNING, and writes
-the complete turn/throttle command every tick.
+`TargetPathBlocked` and both gap nodes are Conditions and never write commands.
+The target-aligned Condition reads only `best_target_gap`; the exploration
+Condition reads only `best_exploration_gap` and therefore does not leak unknown
+target direction.
 
-Target Pursuit remains above Gap Exploration, so a newly visible target
-immediately preempts exploration. Existing Obstacle Avoidance remains highest
-priority. If no gap is available, Search Target rotates in place so subsequent
-ticks can inspect a different FOV without tracing another closed movement circle.
+## Gap Commitment
+
+Each Move Through Gap Action captures its Condition's `entry_position` in
+`initialise()`. The Action steers toward that fixed absolute point and remains
+RUNNING until the Agent is within `gap_entry_reached_distance`, then returns
+SUCCESS.
+
+Both gap Sequences use `memory=True`, so their Conditions are not re-run while
+the Action is entering the selected opening. This prevents left/right candidate
+flicker. Higher-priority root branches still provide the required preemption:
+
+- Emergency Obstacle Avoidance invalidates either gap action immediately.
+- A newly available target preempts unknown-target Gap Exploration.
+- Target Gap Navigation intentionally completes its short entry commitment even
+  if the direct target ray clears part-way through; it re-evaluates after reaching
+  the waypoint.
+
+An invalidated gap Action clears only its local waypoint. The shared command is
+still reset by the controller before every tree tick, preventing stale commands.
 
 ## Configuration
 
-Add only small Behavior Tree settings following the existing flat configuration:
+Keep the existing flat Behavior Tree configuration and add:
 
 ```python
-"gap_ray_count": 31,
-"gap_min_travel_distance": 100.0,
-"gap_safety_margin": 8.0,
-"gap_throttle": 0.5,
+"gap_open_ratio": 0.85,
+"gap_entry_ratio": 0.8,
+"gap_entry_reached_distance": 24.0,
 ```
 
-The existing sensor range and FOV define the maximum local sensing region. The
-ray count must be at least three, minimum travel distance must be positive, and
-safety margin must be non-negative. Invalid values fail fast during controller
-construction rather than silently changing navigation behavior.
+Validation requires `0 < gap_open_ratio <= 1`, `0 < gap_entry_ratio < 1`, and a
+positive reached distance. Existing ray count, minimum travel distance, safety
+margin, and throttle settings remain unchanged.
 
-## Data Flow and Ownership
+## Data Flow
 
 ```text
-Environment rectangles and bounds
-        -> AgentPerception ray sampling
-        -> PerceptionSnapshot gaps
-        -> Traversable Gap?
-        -> Move Through Gap command
+Environment geometry and optional target information
+        -> AgentPerception safe rays and gap candidates
+        -> target_path_blocked / selected PerceivedGap
+        -> BT Conditions
+        -> committed Move Through Gap waypoint
         -> existing Environment collision resolution
 ```
 
-Environment remains the authority for collision and dynamics. Perception only
-derives local observations. BT nodes select behavior and issue commands. This
-increment uses existing generic BT feedback to show the selected bearing and
-distance; it adds no separate gap overlay or visualization dependency.
+Environment remains authoritative for collision and dynamics. Perception derives
+observations. BT selects intent and commands. No visualization data feeds back
+into navigation.
 
 ## Verification
 
 Focused tests cover:
 
-- open forward space selects a near-forward gap;
-- a sufficiently wide opening between inflated rectangles remains traversable;
-- an opening narrower than the Agent safe diameter is rejected;
-- world boundaries limit ray distance and are never treated as exits;
-- target appearance preempts a running Move Through Gap action;
-- an imminent obstacle still preempts exploration;
-- no-gap fallback rotates in place;
-- existing target Range/FOV/LOS, M2 recording, reset, scenes, and visualization
-  continue to work.
+- the simple-scene wall produces a side opening rather than a forward false gap;
+- an opening closed by radius/safety inflation is not selected through its center;
+- ground-truth target plus blocked direct ray runs Target Gap Navigation;
+- a clear direct ray runs Move To Target;
+- a target outside FOV turns through Move To Target rather than falsely reporting
+  a blocked path;
+- a gap action retains one absolute waypoint while perception candidates change;
+- reaching the waypoint returns SUCCESS and allows tree re-evaluation;
+- Emergency Avoidance invalidates committed target/exploration gap actions;
+- a newly perceived target preempts committed unknown-target exploration;
+- existing M2 fields, visualization, reset, and three scenes remain operational.
 
 ## Known Limitations
 
-This is local, memoryless free-space steering. It may revisit areas, oscillate in
-symmetric layouts, or fail in maze-like environments requiring a global route.
-It does not rank gaps by an unknown target direction, build a map, remember
-visited gaps, or guarantee complete environment coverage.
+The fixed waypoint is a short local commitment, not route planning. Navigation
+can still revisit openings or fail in maze-like layouts. Target-aligned selection
+uses only the currently sensed FOV, and no history is kept after completion or
+preemption.
