@@ -3,3 +3,4 @@ __pycache__/
 *_private/
 experiments/results.csv
 experiments/runs/
+experiments/*
