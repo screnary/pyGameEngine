@@ -128,6 +128,30 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Milestone 3 completed (current):
+
+* `Environment.step(command, dt)` is the single simulation entry shared by
+  Manual, Behavior Tree, and Gym control
+* each step applies command, motion, collision/boundary resolution,
+  simulation-time/termination updates, then refreshes perception
+* simulation uses a fixed `1/60` second timestep independent of render FPS
+* `PygameRenderer` owns display, assets, fonts, drawing, and human pacing while
+  only reading World state
+* `AgentGymEnv` wraps the existing World and follows the Gymnasium reset/step API
+* the continuous action is `[turn, throttle]` and reuses the existing Command
+* the fixed 13-value `float32` observation uses Agent state, perceived Target /
+  obstacle information, and boundary clearances without unavailable ground truth
+* baseline reward uses a step cost, one penalty per new collision event, and a
+  Target completion reward
+* Target arrival is `terminated`; the scene time limit is `truncated`
+* `render_mode=None` creates no window or Renderer; `human` reuses the same
+  read-only Pygame Renderer
+* Gym episodes can reuse `ExperimentRecorder`; BT-only metrics remain empty
+* `gym_demo.py` provides a random-Action headless smoke test
+
+Gym registration, PPO, Stable-Baselines3, vectorized environments, reward
+optimization, and other RL training work remain intentionally deferred to M4.
+
 Behavior Tree JSON definition refactor completed (current):
 
 * `bt_configs/default.json` defines the migrated 16-node tree topology
@@ -143,7 +167,7 @@ Behavior Tree JSON definition refactor completed (current):
   block comments covering data flow, units, lifecycle, and algorithm intent
 
 XML/YAML, SubTree, Decorator/Parallel expansion, plugins, hot reload, editors,
-RL, and Gymnasium remain intentionally out of scope.
+and automatic BT/RL generation remain intentionally out of scope.
 
 Milestone 1.3 completed:
 

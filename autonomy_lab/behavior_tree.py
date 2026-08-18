@@ -10,7 +10,6 @@ from .behaviors import AvoidObstacle, MoveThroughGap, MoveToTarget, ObstacleThre
 from .bt_loader import load_behavior_tree
 from .bt_visualizer import BTVisualizer
 from .environment import Environment
-from .perception import AgentPerception
 
 
 PANEL_WIDTH = 480
@@ -40,8 +39,8 @@ class BehaviorTreeController:
         # 所有 Action 写入同一个字典；main.py 在 tick 后读取最终值。
         self.command = {"turn": 0.0, "throttle": 0.0}
         config = environment.scene_config["behavior_tree"]
-        # Perception 在 Controller 创建时初始化，此后每个 tick 刷新一次 snapshot。
-        self.perception = AgentPerception(environment)
+        # World 持有唯一 Perception；Controller 只刷新并读取同一个实例。
+        self.perception = environment.perception
         loaded = load_behavior_tree(
             bt_config,
             BehaviorBuildContext(self.perception, self.command, config),

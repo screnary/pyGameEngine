@@ -4,12 +4,16 @@
 是否允许目标真值由 ``target_information_mode`` 单独控制。
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import math
+from typing import TYPE_CHECKING
 
 import pygame
 
-from .environment import Environment
+if TYPE_CHECKING:
+    from .environment import Environment
 
 
 def normalise_angle(angle: float) -> float:

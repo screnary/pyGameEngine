@@ -7,3 +7,4 @@ dependencies:
       - pygame
       - numpy
       - py_trees
+      - gymnasium

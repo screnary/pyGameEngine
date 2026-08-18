@@ -1,7 +1,5 @@
 __pycache__/
 *.py[cod]
 *_private/
-experiments/results.csv
-experiments/runs/
-experiments/*
-assets/*
+/experiments/
+/assets/

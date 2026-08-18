@@ -113,10 +113,8 @@ class TargetPerceptionTests(unittest.TestCase):
         self.assertEqual(snapshot.target_unavailable_reason, "outside FOV")
 
     def test_unknown_target_information_mode_is_rejected(self):
-        environment = make_environment(mode="telepathy")
-
         with self.assertRaisesRegex(ValueError, "target_information_mode"):
-            AgentPerception(environment)
+            make_environment(mode="telepathy")
 
 
 class ObstaclePerceptionTests(unittest.TestCase):
@@ -286,9 +284,8 @@ class GapPerceptionTests(unittest.TestCase):
         )
         for updates, message in invalid_settings:
             with self.subTest(updates=updates):
-                environment = make_environment(behavior_tree_updates=updates)
                 with self.assertRaisesRegex(ValueError, message):
-                    AgentPerception(environment)
+                    make_environment(behavior_tree_updates=updates)
 
 
 if __name__ == "__main__":

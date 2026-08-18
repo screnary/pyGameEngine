@@ -1,6 +1,10 @@
 """验证面板结构与状态始终来自真实 py_trees Runtime Tree。"""
 
+import os
 import unittest
+
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
 import py_trees
@@ -8,6 +12,7 @@ import py_trees
 from autonomy_lab.behavior_tree import PANEL_WIDTH, BehaviorTreeController
 from autonomy_lab.bt_visualizer import BTVisualizer
 from autonomy_lab.environment import Environment
+from autonomy_lab.renderer import PygameRenderer
 from autonomy_lab.scene_config import get_scene
 
 
@@ -236,7 +241,6 @@ class BTVisualizerRuntimeTests(unittest.TestCase):
         )
 
     def test_environment_draws_fov_in_front_but_not_behind_agent(self):
-        pygame.font.init()
         scene = get_scene("simple")
         scene["agent"]["position"] = (300, 300)
         scene["agent"]["heading_degrees"] = 0.0
@@ -248,13 +252,16 @@ class BTVisualizerRuntimeTests(unittest.TestCase):
             "los_enabled": True,
         }
         environment = Environment(scene)
-        surface = pygame.Surface(environment.world_size)
+        renderer = PygameRenderer(environment)
+        try:
+            renderer.render(environment)
+            surface = renderer.screen
 
-        environment.draw(surface, pygame.font.Font(None, 26))
-
-        background = scene["display"]["background_color"]
-        self.assertNotEqual(surface.get_at((350, 300))[:3], background)
-        self.assertEqual(surface.get_at((250, 300))[:3], background)
+            background = scene["display"]["background_color"]
+            self.assertNotEqual(surface.get_at((350, 300))[:3], background)
+            self.assertEqual(surface.get_at((250, 300))[:3], background)
+        finally:
+            renderer.close()
 
 
 if __name__ == "__main__":

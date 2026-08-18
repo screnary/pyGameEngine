@@ -11,7 +11,23 @@ import pygame
 from autonomy_lab.behavior_tree import PANEL_WIDTH, BehaviorTreeController
 from autonomy_lab.environment import Environment
 from autonomy_lab.experiment import ExperimentRecorder
+from autonomy_lab.renderer import PygameRenderer
 from autonomy_lab.scene_config import DEFAULT_SCENARIO, SCENES, get_scene
+
+
+SIMULATION_DT = 1.0 / 60.0
+
+
+def manual_command(keys: pygame.key.ScancodeWrapper) -> dict[str, float]:
+    """把键盘状态转换成与 BT/Gym 相同的 ``turn/throttle`` Command。"""
+    # 相反方向相减后自然得到 -1、0 或 +1；World 不需要知道输入来自键盘。
+    turn = float(keys[pygame.K_d] or keys[pygame.K_RIGHT]) - float(
+        keys[pygame.K_a] or keys[pygame.K_LEFT]
+    )
+    throttle = float(keys[pygame.K_w] or keys[pygame.K_UP]) - float(
+        keys[pygame.K_s] or keys[pygame.K_DOWN]
+    )
+    return {"turn": turn, "throttle": throttle}
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,22 +83,15 @@ def main() -> None:
     )
     experiment_config = environment.scene_config["experiment"]
 
-    # 必须先初始化 Pygame 和显示模式，PNG 的 convert_alpha() 才能正确工作。
-    pygame.init()
     panel_width = PANEL_WIDTH if controller is not None else 0
-    screen = pygame.display.set_mode(
-        (environment.world_size[0] + panel_width, environment.world_size[1])
-    )
-    pygame.display.set_caption(f"Autonomy Lab - {environment.scene_name}")
-    clock = pygame.time.Clock()
-    font = pygame.font.Font(None, 26)
+    renderer = PygameRenderer(environment, panel_width=panel_width)
 
     running = True
     # 成功到达目标后保持窗口，但不再更新仿真；R 可以开始新的 Episode。
     episode_finished = False
     while running:
-        # tick 返回上一帧耗时；上限避免窗口卡顿后单帧位移过大。
-        dt = min(clock.tick(60) / 1000.0, 0.05)
+        # 真实 FPS 只控制观看节奏；物理始终使用固定 SIMULATION_DT。
+        renderer.pace(60)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 # 只结束仍在运行的 Episode；已成功保存的 Episode 不重复写入。
@@ -114,16 +123,17 @@ def main() -> None:
         # 成功后仅停止仿真，继续渲染结果，直到用户关闭或按 R 重开。
         if not episode_finished:
             if controller is None:
-                # 手动和 BT 最终都进入 Agent.update_motion()，动力学保持一致。
-                environment.update(dt, pygame.key.get_pressed())
+                command = manual_command(pygame.key.get_pressed())
             else:
-                # BT 只输出归一化命令；位置、朝向仍由 Environment/Agent 更新。
-                turn, throttle = controller.tick(dt)
-                environment.update_command(dt, throttle, turn)
+                # BT 只输出归一化命令；位置、朝向仍由同一个 World 更新。
+                turn, throttle = controller.tick(SIMULATION_DT)
+                command = {"turn": turn, "throttle": throttle}
+
+            environment.step(command, SIMULATION_DT)
 
             # 运动已经应用后再记录，因此 path_length 使用本帧的真实位移。
             recorder.update(
-                dt,
+                SIMULATION_DT,
                 environment,
                 active_action=(
                     controller.active_behavior if controller is not None else None
@@ -131,25 +141,19 @@ def main() -> None:
                 bt_ticked=controller is not None,
             )
 
-            distance_to_target = (
-                environment.target - environment.agent.position
-            ).length()
-            # 到达条件属于实验终止标准，不属于某个具体 Behavior 的内部逻辑。
-            if distance_to_target <= experiment_config["target_reached_distance"]:
+            # World 在碰撞解决后更新自然终止状态，Recorder 只负责封存结果。
+            if environment.target_reached:
                 recorder.finish_episode("SUCCESS", "target_reached")
                 episode_finished = True
-            elif recorder.elapsed_time >= experiment_config["max_episode_time"]:
+            elif environment.simulation_time >= experiment_config["max_episode_time"]:
                 recorder.finish_episode("TIMEOUT", "timeout")
                 # TIMEOUT 用于批量实验，因此仍保持原有的自动退出语义。
                 running = False
 
         # 无论 Episode 是否结束都持续绘制，使用户能观察最终状态。
-        environment.draw(screen, font, clock.get_fps(), args.controller)
-        if controller is not None:
-            controller.draw_panel(screen, font, environment.world_size[0])
-        pygame.display.flip()
+        renderer.render(environment, controller, args.controller)
 
-    pygame.quit()
+    renderer.close()
 
 
 if __name__ == "__main__":

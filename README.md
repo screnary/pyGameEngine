@@ -6,9 +6,11 @@ experiments.
 ## Current structure
 
 - `main.py` - direct launcher
-- `autonomy_lab/agent.py` - agent state, controls, and rendering
+- `autonomy_lab/agent.py` - agent state and shared motion model
 - `autonomy_lab/assets.py` - optional project-local PNG loading
-- `autonomy_lab/environment.py` - scene state, collision, reset, and rendering
+- `autonomy_lab/environment.py` - unique World state, collision, perception, and step
+- `autonomy_lab/renderer.py` - read-only Pygame window and scene rendering
+- `autonomy_lab/gym_env.py` - Gymnasium adapter around the same World
 - `autonomy_lab/scene_config.py` - editable scenario presets
 - `autonomy_lab/behaviors.py` - task-specific `py_trees` nodes
 - `autonomy_lab/behavior_context.py` - shared runtime dependencies for BT leaves
@@ -16,6 +18,7 @@ experiments.
 - `autonomy_lab/bt_loader.py` - JSON validation and `py_trees` construction
 - `bt_configs/` - Behavior Tree definitions in `bt-lab/v1` JSON
 - `assets/` - optional tactical icons with primitive drawing fallback
+- `gym_demo.py` - headless random-Action Gym smoke test
 
 ## Run
 
@@ -41,6 +44,53 @@ and the small set of Behavior Tree experiment parameters.
 
 Controls: `W/S` or Up/Down to move, `A/D` or Left/Right to turn, and `R` to
 reset.
+
+Run the Gymnasium adapter without a window:
+
+```powershell
+conda run -n pygame_lab python gym_demo.py
+```
+
+Use human rendering from Python when visual inspection is needed:
+
+```python
+from autonomy_lab.gym_env import AgentGymEnv
+
+env = AgentGymEnv(scenario="simple", render_mode="human")
+observation, info = env.reset(seed=42)
+observation, reward, terminated, truncated, info = env.step(
+    env.action_space.sample()
+)
+env.close()
+```
+
+`render_mode=None` does not create a Renderer, window, event loop, or Clock.
+Both modes use a fixed simulation step of `1/60` second and call the same
+`Environment.step()` implementation.
+
+## Gymnasium interface
+
+The continuous `Box(shape=(2,))` action is `[turn, throttle]`, with both values
+in `[-1, 1]`. Manual input and Behavior Tree Actions produce the same Command
+keys before entering the World.
+
+The fixed 13-value `float32` observation contains, in order:
+
+```text
+speed,
+heading_sin, heading_cos,
+target_visible, target_distance, target_bearing,
+perceived_obstacle_available, obstacle_distance, obstacle_bearing,
+left_clearance, right_clearance, top_clearance, bottom_clearance
+```
+
+Distances and clearances are normalized. An invisible Target or missing
+perceived obstacle uses zero distance/bearing plus its visibility/availability
+flag, so the vector never exposes unavailable World ground truth.
+
+The M3 baseline reward is `-0.001` per step, `-0.05` for a new collision event,
+and `+1.0` when the Target is reached. Target arrival sets `terminated`; the
+scene time limit sets `truncated`. Reward tuning and PPO remain future work.
 
 ## Behavior Tree
 
@@ -85,19 +135,20 @@ main.py
   -> behavior_context.py / behaviors.py
   -> behavior_registry.py / bt_loader.py
   -> behavior_tree.py
-  -> bt_visualizer.py / experiment.py
+  -> renderer.py / bt_visualizer.py / experiment.py
+  -> gym_env.py
 ```
 
 一帧自主控制的完整数据流是：
 
 ```text
 Environment 当前状态
-  -> AgentPerception.update() 生成 PerceptionSnapshot
   -> py_trees tick Conditions / Actions
   -> Action 写入 context.command
-  -> Environment.update_command() 更新 Agent
+  -> Environment.step(command, 1/60)
+  -> motion / collision / termination / AgentPerception.update()
   -> ExperimentRecorder.update() 记录实际结果
-  -> Environment / BTVisualizer 绘制画面
+  -> PygameRenderer / BTVisualizer 只读绘制画面
 ```
 
 ## Rendering assets

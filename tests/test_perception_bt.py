@@ -394,7 +394,10 @@ class PerceptionControllerTests(unittest.TestCase):
         for _ in range(180):
             turn, throttle = controller.tick(1.0 / 60.0)
             self.assertNotEqual(controller.active_behavior, "Avoid Obstacle")
-            environment.update_command(1.0 / 60.0, throttle, turn)
+            environment.step(
+                {"turn": turn, "throttle": throttle},
+                1.0 / 60.0,
+            )
             if (
                 controller.nodes_by_name["Move Through Target Gap"].status
                 == py_trees.common.Status.SUCCESS
