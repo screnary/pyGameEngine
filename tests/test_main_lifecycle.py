@@ -1,3 +1,5 @@
+"""在 dummy SDL 下验证成功、重置、关闭和超时的 Episode 生命周期。"""
+
 import argparse
 import csv
 import json
@@ -18,6 +20,12 @@ from autonomy_lab.scene_config import get_scene
 
 
 class SuccessWindowLifecycleTests(unittest.TestCase):
+    def test_cli_accepts_named_bt_config(self):
+        with mock.patch("sys.argv", ["main.py", "--bt", "custom"]):
+            args = app.parse_args()
+
+        self.assertEqual(args.bt, "custom")
+
     def run_main_with_events(
         self,
         event_frames: list[str | None],
@@ -25,6 +33,7 @@ class SuccessWindowLifecycleTests(unittest.TestCase):
         target_at_start: bool = True,
         max_episode_time: float | None = None,
     ):
+        """每个渲染帧注入一个事件名称，确定性驱动无窗口主循环。"""
         output_dir = Path(tempfile.mkdtemp())
         scene = get_scene("simple")
         if target_at_start:
@@ -75,6 +84,7 @@ class SuccessWindowLifecycleTests(unittest.TestCase):
         self.assertEqual(len(payloads), 1)
         self.assertEqual(payloads[0]["result"], "SUCCESS")
         self.assertEqual(payloads[0]["termination_reason"], "target_reached")
+        self.assertIsNone(payloads[0]["bt_config_id"])
         self.assertEqual(len(rows), 1)
 
     def test_reset_after_success_starts_a_fresh_episode(self):

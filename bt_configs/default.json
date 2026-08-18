@@ -1,0 +1,98 @@
+{
+  "format": "bt-lab/v1",
+  "id": "default_bt",
+  "name": "Default Agent Behavior",
+  "root": {
+    "type": "selector",
+    "name": "Priority Selector",
+    "memory": false,
+    "children": [
+      {
+        "type": "sequence",
+        "name": "Obstacle Avoidance",
+        "memory": true,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Obstacle Threat?",
+            "behavior": "ObstacleThreat"
+          },
+          {
+            "type": "action",
+            "name": "Avoid Obstacle",
+            "behavior": "AvoidObstacle",
+            "params": {"condition": "Obstacle Threat?"}
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Target Gap Navigation",
+        "memory": true,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Target Available for Gap?",
+            "behavior": "TargetAvailable"
+          },
+          {
+            "type": "condition",
+            "name": "Target Path Blocked?",
+            "behavior": "TargetPathBlocked"
+          },
+          {
+            "type": "condition",
+            "name": "Target-aligned Gap?",
+            "behavior": "TargetAlignedGap"
+          },
+          {
+            "type": "action",
+            "name": "Move Through Target Gap",
+            "behavior": "MoveThroughGap",
+            "params": {"condition": "Target-aligned Gap?"}
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Target Pursuit",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Target Available?",
+            "behavior": "TargetAvailable"
+          },
+          {
+            "type": "action",
+            "name": "Move To Target",
+            "behavior": "MoveToTarget"
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Gap Exploration",
+        "memory": true,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Traversable Gap?",
+            "behavior": "TraversableGap"
+          },
+          {
+            "type": "action",
+            "name": "Move Through Exploration Gap",
+            "behavior": "MoveThroughGap",
+            "params": {"condition": "Traversable Gap?"}
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "name": "Search Target",
+        "behavior": "SearchTarget"
+      }
+    ]
+  }
+}

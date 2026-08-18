@@ -121,11 +121,16 @@ Keep the existing flat Behavior Tree configuration and add:
 "gap_open_ratio": 0.85,
 "gap_entry_ratio": 0.8,
 "gap_entry_reached_distance": 24.0,
+"gap_commit_emergency_distance": 4.0,
 ```
 
-Validation requires `0 < gap_open_ratio <= 1`, `0 < gap_entry_ratio < 1`, and a
-positive reached distance. Existing ray count, minimum travel distance, safety
-margin, and throttle settings remain unchanged.
+Validation requires `0 < gap_open_ratio <= 1`, `0 < gap_entry_ratio < 1`, a
+positive reached distance, and an emergency distance between zero and the normal
+avoidance distance. Existing ray count, minimum travel distance, safety
+margin, and throttle settings remain unchanged. During a committed gap Action,
+Obstacle Threat temporarily uses `gap_commit_emergency_distance` instead of the
+normal proactive avoidance distance. This lets a radius-safe path finish while
+retaining preemption for an actual near-collision deviation.
 
 ## Data Flow
 

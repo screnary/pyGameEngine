@@ -4,3 +4,4 @@ __pycache__/
 experiments/results.csv
 experiments/runs/
 experiments/*
+assets/*

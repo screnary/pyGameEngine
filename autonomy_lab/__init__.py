@@ -1,1 +1,1 @@
-"""Two-dimensional autonomous-agent research prototype."""
+"""二维自主智能体科研原型的核心 Python 包。"""

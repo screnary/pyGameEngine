@@ -128,6 +128,46 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Behavior Tree JSON definition refactor completed (current):
+
+* `bt_configs/default.json` defines the migrated 16-node tree topology
+* lightweight `bt-lab/v1` supports Selector, Sequence, Condition, and Action
+* a recursive Loader validates JSON and constructs the real `py_trees` runtime
+* a direct Class Registry maps Behavior names to existing Python node classes
+* all registered leaves use `Behavior(context, name, **params)`
+* JSON node parameters override scene defaults; omitted values use scene config
+* `python main.py --bt default` selects a definition by filename
+* the Visualizer continues to inspect runtime topology, not raw JSON
+* experiment JSON/CSV output records `bt_config_id`
+* all Python modules now include Chinese teaching-oriented Docstrings and
+  block comments covering data flow, units, lifecycle, and algorithm intent
+
+XML/YAML, SubTree, Decorator/Parallel expansion, plugins, hot reload, editors,
+RL, and Gymnasium remain intentionally out of scope.
+
+Milestone 1.3 completed:
+
+* perception-aware Behavior Tree decisions through a synchronous `PerceptionSnapshot`
+* configurable perceived-target and ground-truth target-information modes
+* target Range, FOV, and line-of-sight visibility checks
+* FOV-aware obstacle perception and `Obstacle Threat?` decisions
+* reactive Target Pursuit, low-speed Search Target, and timed avoidance preemption
+* command lifecycle cleanup with no stale action command after preemption
+* lightweight FOV and runtime feedback visualization
+* existing M2 JSON/CSV metrics and active-action transition counting retained
+* radius-aware FOV ray sampling for local traversable-gap perception
+* relative-open-distance filtering so short wall-facing rays are not treated as gaps
+* target-aware Gap Navigation when ground-truth or perceived target information is available
+* fixed gap-entry waypoints so the Agent commits to entering a selected opening
+* reduced emergency-only avoidance threshold while a gap entry is committed
+* target-unknown Gap Exploration through `Traversable Gap?` and `Move Through Exploration Gap`
+* in-place Search Target fallback when the current FOV has no safe local opening
+
+Gap navigation is intentionally local. It does not build a map, remember visited
+openings, guarantee complete coverage, or solve maze-like global navigation. A
+committed entry waypoint stabilizes each local crossing, but later crossings can
+still require new local gap selections and emergency avoidance.
+
 Milestone 1.2 completed:
 
 * definition-driven Behavior Tree visualization

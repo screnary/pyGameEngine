@@ -128,7 +128,7 @@ The real `py_trees` definition becomes:
 
 ```text
 Priority Selector (memory=False)
-├── Obstacle Avoidance (Sequence, memory=False)
+├── Obstacle Avoidance (Sequence, memory=True)
 │   ├── Obstacle Threat? (Condition)
 │   └── Avoid Obstacle (Action)
 ├── Target Pursuit (Sequence, memory=False)
@@ -137,7 +137,11 @@ Priority Selector (memory=False)
 └── Search Target (Action)
 ```
 
-Both Sequences are reactive so their conditions are checked every tick.
+The root Selector and Target Pursuit Sequence are reactive. Obstacle Avoidance
+uses memory so that once a threat starts the short timed avoidance action, that
+action finishes without flickering as the obstacle bearing crosses the sensing
+threshold. The reactive root still checks the high-priority avoidance branch
+before lower-priority pursuit/search on every tick.
 
 ### Conditions
 
@@ -158,8 +162,10 @@ uses relative bearing for turn strength, reduces throttle for large bearing
 errors, stops within the configured reached distance, and never reads the
 Environment target.
 
-`SearchTarget` emits configured low turn and throttle commands and remains
-RUNNING. This is a simple moving scan, not a coverage planner.
+`SearchTarget` emits the same configured low turn and throttle commands whenever
+target information is unavailable and remains RUNNING. It does not inspect the
+ground-truth reason for target invisibility. This is a simple moving scan, not a
+coverage planner.
 
 `AvoidObstacle` selects a turn direction from the perceived obstacle bearing,
 emits its existing timed avoidance command, and does not scan all Environment
