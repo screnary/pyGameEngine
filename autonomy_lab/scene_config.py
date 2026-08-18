@@ -41,6 +41,121 @@ DEFAULT_EXPERIMENT_CONFIG = {
 
 # 预设只保存数据；get_scene() 会返回深拷贝供运行时安全修改。
 SCENES = {
+    "ppo_simple_obstacle": {
+        "name": "PPO Simple Obstacle Beacon",
+        "world_size": (850, 600),
+        "seed": 44,
+        "agent": {
+            "position": (100, 300),
+            "heading_degrees": 0.0,
+            "initial_speed": 0.0,
+            "max_speed": 220.0,
+            "turn_speed_degrees": 150.0,
+            "radius": 16,
+        },
+        "target": {"position": (750, 300), "radius": 18},
+        # 单个障碍偏向场景上方：直线路径被挡住，但下方存在宽裕绕行空间。
+        # 当前 nearest-obstacle distance/bearing 足以描述唯一的避障对象。
+        "obstacles": [(350, 100, 80, 240)],
+        "target_information_mode": "perceived",
+        "sensor": {
+            **DEFAULT_SENSOR_CONFIG,
+            "range": 700.0,
+            "fov_degrees": 160.0,
+            # M4.1a 把 Target 视作 beacon：仍检查 range/FOV，只跳过 Target
+            # 遮挡线段。AgentPerception 的 obstacle perception 不读取此开关。
+            "los_enabled": False,
+        },
+        "behavior_tree": {**DEFAULT_BT_CONFIG},
+        "experiment": {
+            **DEFAULT_EXPERIMENT_CONFIG,
+            "max_episode_time": 20.0,
+        },
+        "display": {
+            "background_color": (22, 27, 36),
+            "agent_color": (60, 170, 255),
+            "target_color": (80, 220, 120),
+            "obstacle_color": (105, 112, 125),
+            "text_color": (225, 230, 238),
+            "show_fps": True,
+        },
+    },
+    "ppo_simple_obstacles": {
+        "name": "PPO Simple Obstacles",
+        "world_size": (850, 600),
+        "seed": 43,
+        "agent": {
+            "position": (100, 295),
+            "heading_degrees": 0.0,
+            "initial_speed": 0.0,
+            "max_speed": 220.0,
+            "turn_speed_degrees": 150.0,
+            "radius": 16,
+        },
+        "target": {"position": (750, 295), "radius": 18},
+        # 两个矩形之间保留 y=280..310 的 30 px LOS 狭缝。Target 中心线
+        # y=295 可见，但 Agent 直径为 32 px，碰撞体无法从狭缝直穿。
+        # 因而策略必须从整个障碍组合的上方或下方绕行，而不是解迷宫。
+        "obstacles": [
+            (340, 170, 70, 110),
+            (340, 310, 70, 120),
+        ],
+        "target_information_mode": "perceived",
+        "sensor": {
+            **DEFAULT_SENSOR_CONFIG,
+            "range": 700.0,
+            "fov_degrees": 160.0,
+        },
+        "behavior_tree": {**DEFAULT_BT_CONFIG},
+        "experiment": {
+            **DEFAULT_EXPERIMENT_CONFIG,
+            "max_episode_time": 20.0,
+        },
+        "display": {
+            "background_color": (22, 27, 36),
+            "agent_color": (60, 170, 255),
+            "target_color": (80, 220, 120),
+            "obstacle_color": (105, 112, 125),
+            "text_color": (225, 230, 238),
+            "show_fps": True,
+        },
+    },
+    "rl_sanity": {
+        "name": "RL Sanity",
+        "world_size": (700, 500),
+        "seed": 2024,
+        "agent": {
+            "position": (120, 250),
+            "heading_degrees": 0.0,
+            "initial_speed": 0.0,
+            "max_speed": 220.0,
+            "turn_speed_degrees": 150.0,
+            "radius": 16,
+        },
+        "target": {"position": (520, 250), "radius": 18},
+        # M4.0 只验证 RL pipeline 是否可学习，因此刻意排除障碍导航变量。
+        # 目标距离 400 px，小于传感距离 500 px，且初始 bearing=0，第一帧即可感知。
+        "obstacles": [],
+        "target_information_mode": "perceived",
+        "sensor": {
+            **DEFAULT_SENSOR_CONFIG,
+            "range": 500.0,
+            "fov_degrees": 120.0,
+        },
+        "behavior_tree": {**DEFAULT_BT_CONFIG},
+        "experiment": {
+            **DEFAULT_EXPERIMENT_CONFIG,
+            "max_episode_time": 10.0,
+        },
+        "display": {
+            "background_color": (22, 27, 36),
+            "agent_color": (60, 170, 255),
+            "target_color": (80, 220, 120),
+            "obstacle_color": (105, 112, 125),
+            "text_color": (225, 230, 238),
+            "show_fps": True,
+        },
+    },
     "simple": {
         "name": "Simple",
         "world_size": (900, 700),

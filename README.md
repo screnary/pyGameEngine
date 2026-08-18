@@ -16,6 +16,8 @@ experiments.
 - `bt_configs/` - Behavior Tree definitions in `bt-lab/v1` JSON
 - `assets/` - optional tactical icons with primitive drawing fallback
 - `gym_demo.py` - headless random-Action Gym smoke test
+- `train_ppo.py` - single-environment PPO training/fine-tuning entry
+- `eval_ppo.py` - fixed-seed Random/PPO evaluation and human rendering entry
 
 ## Run
 
@@ -85,9 +87,123 @@ Distances and clearances are normalized. An invisible Target or missing
 perceived obstacle uses zero distance/bearing plus its visibility/availability
 flag, so the vector never exposes unavailable World ground truth.
 
-The M3 baseline reward is `-0.001` per step, `-0.05` for a new collision event,
-and `+1.0` when the Target is reached. Target arrival sets `terminated`; the
-scene time limit sets `truncated`. Reward tuning and PPO remain future work.
+The M4 reward adds normalized Target progress to `-0.001` per step, `-0.05`
+for a new collision event, and `+1.0` when the Target is reached. Ground-truth
+Target distance is used only as privileged reward shaping during training; it
+is not exposed through Observation or `info`. Target arrival sets `terminated`;
+the scene time limit sets `truncated`.
+
+## PPO models and rendering
+
+The current saved models are:
+
+```text
+models/ppo_m40.zip               M4.0 no-obstacle sanity model (passed)
+models/ppo_m41_obstacles.zip     M4.1 static-obstacle experiment (not passed)
+models/ppo_m41a_simple_obstacle.zip  M4.1a beacon-target experiment (not passed)
+models/ppo_m41b_control10hz.zip  M4.1b 10 Hz control experiment (passed)
+```
+
+`ppo_simple_obstacles` is the original **hard narrow-gap baseline**: two
+rectangles leave a 30 px visual slit that the 32 px Agent cannot traverse.
+`ppo_simple_obstacle` is the separate **simplified beacon-target baseline**:
+one rectangle blocks the direct route while leaving a wide lower route. In the
+latter scene, `los_enabled=False` skips only Target occlusion by obstacles.
+Target visibility still requires sensor range and FOV, and obstacle perception
+remains enabled. The beacon does not expose Target ground-truth coordinates or
+bearing to the policy.
+
+The simplest way to view M4.1 is to let `eval_ppo.py` load the model and run one
+deterministic Episode with the existing Pygame Renderer:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller ppo --episodes 1 --evaluation-seed-start 2001 --tag m41_manual_view --render-mode human
+```
+
+This command performs the complete inference path:
+
+```text
+PPO.load(model)
+  -> AgentGymEnv("ppo_simple_obstacles", render_mode="human")
+  -> model.predict(observation, deterministic=True)
+  -> Environment.step([turn, throttle])
+  -> PygameRenderer
+```
+
+The window closes when the Episode reaches its 20-second simulation limit. Use
+`Ctrl+C` in the terminal to stop earlier. The current 500k M4.1 checkpoint did
+**not** meet the obstacle-navigation acceptance criterion: the rendered Agent
+approaches the obstacle, enters a local control loop, and times out instead of
+reliably going around it. The command is therefore useful for inspecting the
+recorded failure mode, not for demonstrating successful obstacle navigation.
+
+For comparison, the passed M4.0 model can be rendered with:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario rl_sanity --model-path models/ppo_m40.zip --controller ppo --episodes 1 --evaluation-seed-start 1001 --tag m40_manual_view --render-mode human
+```
+
+Run Random and PPO headlessly on the same ten M4.1 evaluation seeds with:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller both --episodes 10 --evaluation-seed-start 2001 --tag m41_manual_check --render-mode none
+```
+
+The terminal prints success rate, mean elapsed time, mean path length, and mean
+collision count. Detailed Recorder output is written under:
+
+```text
+experiments/m40_eval/<tag>/summary.json
+experiments/m40_eval/<tag>/<controller>/results.csv
+experiments/m40_eval/<tag>/<controller>/runs/episode_*.json
+```
+
+The retained experiment checkpoints are `m41_200k` and `m41_500k`. At both
+checkpoints Random and PPO achieved 0% success; see `PROJECT_GUIDE.md` for the
+bounded failure diagnosis. M4.0 remains the latest passed RL milestone.
+
+To inspect the M4.1a single-obstacle model visually, run:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_manual_view --render-mode human
+```
+
+To reproduce its fixed-seed headless comparison, run:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_manual_check --render-mode none
+```
+
+M4.1a also did not meet acceptance: Random and PPO both scored 0% at 200k and
+500k. The deterministic PPO approaches the obstacle, collides once, then keeps
+full throttle with almost no steering until timeout. Evaluation now writes
+`diagnostics.json` beside each controller's `results.csv`; it includes distance,
+visibility/action ratios, reward components, termination reason, and a reference
+to a typical trajectory under `runs/`. These checkpoints are retained as failure
+evidence rather than advertised as successful navigation models.
+
+M4.1b keeps the World simulation at 60 Hz but lets PPO choose one Action every
+six internal steps (`action_repeat=6`, 10 Hz control). The same Command is held
+for those steps; progress, step cost, collision events, simulation time, and
+Recorder metrics are aggregated from the actual internal steps. The 200k Phase
+A model reached 100% success versus Random's 0% on seeds 3001-3010, so the
+optional contact-penalty Phase B was not run.
+
+Render the successful M4.1b model with:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_manual_view --render-mode human --action-repeat 6
+```
+
+Reproduce the fixed-seed Random/PPO comparison with:
+
+```powershell
+conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_manual_check --render-mode none --action-repeat 6
+```
+
+The Adapter defaults remain `action_repeat=1` and
+`contact_penalty_per_step=0.0`, so existing M4.0/M4.1 commands keep their
+original one-decision/one-simulation-step behavior.
 
 ## Behavior Tree
 
