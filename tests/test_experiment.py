@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from autonomy_lab.environment import Environment
-from autonomy_lab.experiment import ExperimentRecorder
+from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.scene_config import get_scene
 
 

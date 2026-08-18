@@ -8,8 +8,8 @@ import pygame
 from .assets import load_optional_image
 
 if TYPE_CHECKING:
-    from .behavior_tree import BehaviorTreeController
-    from .environment import Environment
+    from ..bt.controller import BehaviorTreeController
+    from ..environment import Environment
 
 
 class PygameRenderer:

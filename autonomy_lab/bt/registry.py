@@ -1,4 +1,4 @@
-"""把 BT JSON 中的 behavior 名称显式映射到 Python Behavior 类。
+"""在 BT 子包内把 JSON behavior 名称显式映射到 Python Behavior 类。
 
 Registry 不负责创建实例、解析参数或扫描插件；这些职责分别属于 Loader 和
 Behavior 自身。新增符合统一构造接口的节点时，只需在字典中增加一项。

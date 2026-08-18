@@ -88,21 +88,21 @@ Do not build a general-purpose behavior-tree framework.
 
 ## Project Structure
 
-Keep the codebase small.
-
-Typical modules may include:
+Keep the codebase small. The current responsibility-based layout is:
 
 ```text
 main.py
-environment.py
-agent.py
-behaviors.py
-gym_env.py
-train.py
-experiments/
+gym_demo.py
+autonomy_lab/
+├── agent.py
+├── environment.py
+├── perception.py
+├── scene_config.py
+├── bt/
+├── rendering/
+├── gym/
+└── experiment/
 ```
-
-This is only a guideline.
 
 Do not create modules until they are actually needed.
 
@@ -127,6 +127,21 @@ Implement only the currently requested stage.
 Do not build later stages in advance.
 
 ## Current Milestone
+
+Milestone 3.1 completed (current):
+
+* core simulation remains in `agent.py`, `environment.py`, `perception.py`, and
+  `scene_config.py`
+* Behavior Tree nodes, construction, Controller, and visualization are grouped
+  under `autonomy_lab/bt/`
+* Pygame rendering and optional assets are grouped under
+  `autonomy_lab/rendering/`
+* the Gymnasium Adapter is located at `autonomy_lab/gym/env.py`
+* `ExperimentRecorder` is located at `autonomy_lab/experiment/recorder.py`
+* Core imports no BT, Gym, Rendering, or Experiment package
+* obsolete root-package module copies and their imports were removed
+* Behavior Tree, Gym spaces/reward, simulation dynamics, perception semantics,
+  and experiment metric definitions remain unchanged
 
 Milestone 3 completed (current):
 

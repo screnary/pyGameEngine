@@ -8,10 +8,10 @@ import argparse
 
 import pygame
 
-from autonomy_lab.behavior_tree import PANEL_WIDTH, BehaviorTreeController
+from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
 from autonomy_lab.environment import Environment
-from autonomy_lab.experiment import ExperimentRecorder
-from autonomy_lab.renderer import PygameRenderer
+from autonomy_lab.experiment.recorder import ExperimentRecorder
+from autonomy_lab.rendering.renderer import PygameRenderer
 from autonomy_lab.scene_config import DEFAULT_SCENARIO, SCENES, get_scene
 
 

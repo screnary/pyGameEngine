@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import py_trees
 
-from .perception import AgentPerception
+from ..perception import AgentPerception
 
 
 @dataclass

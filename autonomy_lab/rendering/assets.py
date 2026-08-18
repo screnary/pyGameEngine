@@ -6,7 +6,7 @@ import pygame
 
 
 # 路径基于当前源码文件，而不是进程 working directory。
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 
 
 def load_optional_image(filename: str) -> pygame.Surface | None:

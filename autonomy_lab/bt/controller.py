@@ -5,11 +5,11 @@ from collections.abc import Iterator
 import pygame
 import py_trees
 
-from .behavior_context import BehaviorBuildContext
+from ..environment import Environment
 from .behaviors import AvoidObstacle, MoveThroughGap, MoveToTarget, ObstacleThreat
-from .bt_loader import load_behavior_tree
-from .bt_visualizer import BTVisualizer
-from .environment import Environment
+from .context import BehaviorBuildContext
+from .loader import load_behavior_tree
+from .visualizer import BTVisualizer
 
 
 PANEL_WIDTH = 480

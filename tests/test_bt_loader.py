@@ -9,15 +9,15 @@ from pathlib import Path
 import pygame
 import py_trees
 
-from autonomy_lab.behavior_context import BehaviorBuildContext
-from autonomy_lab.behaviors import AgentAction, AgentBehaviour
-from autonomy_lab.behavior_registry import BEHAVIOR_REGISTRY
-from autonomy_lab.bt_loader import (
+from autonomy_lab.bt.behaviors import AgentAction, AgentBehaviour
+from autonomy_lab.bt.context import BehaviorBuildContext
+from autonomy_lab.bt.loader import (
     build_behavior_tree,
     load_behavior_tree,
     load_bt_definition,
 )
-from autonomy_lab.bt_visualizer import BTVisualizer
+from autonomy_lab.bt.registry import BEHAVIOR_REGISTRY
+from autonomy_lab.bt.visualizer import BTVisualizer
 from autonomy_lab.environment import Environment
 from autonomy_lab.perception import AgentPerception
 from autonomy_lab.scene_config import get_scene

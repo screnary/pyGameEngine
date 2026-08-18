@@ -10,15 +10,15 @@ from pathlib import Path
 
 import py_trees
 
-from .behavior_registry import (
+from .registry import (
     BEHAVIOR_REGISTRY,
     BehaviorClass,
 )
-from .behavior_context import BehaviorBuildContext
+from .context import BehaviorBuildContext
 
 
 # 配置路径以源码位置为基准，因此从任意 working directory 启动都一致。
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BT_CONFIG_DIR = PROJECT_ROOT / "bt_configs"
 FORMAT = "bt-lab/v1"
 NODE_TYPES = {"selector", "sequence", "condition", "action"}

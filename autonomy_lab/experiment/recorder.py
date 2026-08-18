@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .environment import Environment
+    from ..environment import Environment
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments"
 # CSV 只保存适合跨 Episode 比较的标量；完整 trajectory 留在 JSON。
 SUMMARY_FIELDS = (

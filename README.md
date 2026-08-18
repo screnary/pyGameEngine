@@ -6,16 +6,13 @@ experiments.
 ## Current structure
 
 - `main.py` - direct launcher
-- `autonomy_lab/agent.py` - agent state and shared motion model
-- `autonomy_lab/assets.py` - optional project-local PNG loading
-- `autonomy_lab/environment.py` - unique World state, collision, perception, and step
-- `autonomy_lab/renderer.py` - read-only Pygame window and scene rendering
-- `autonomy_lab/gym_env.py` - Gymnasium adapter around the same World
-- `autonomy_lab/scene_config.py` - editable scenario presets
-- `autonomy_lab/behaviors.py` - task-specific `py_trees` nodes
-- `autonomy_lab/behavior_context.py` - shared runtime dependencies for BT leaves
-- `autonomy_lab/behavior_registry.py` - direct Behavior Class mapping
-- `autonomy_lab/bt_loader.py` - JSON validation and `py_trees` construction
+- `autonomy_lab/agent.py`, `environment.py`, `perception.py`, `scene_config.py` -
+  core simulation
+- `autonomy_lab/bt/` - Behavior nodes, Context, Registry, JSON Loader,
+  Runtime Controller, and Visualizer
+- `autonomy_lab/rendering/` - read-only Pygame Renderer and optional PNG loading
+- `autonomy_lab/gym/env.py` - Gymnasium adapter around the same World
+- `autonomy_lab/experiment/recorder.py` - controller-independent Episode metrics
 - `bt_configs/` - Behavior Tree definitions in `bt-lab/v1` JSON
 - `assets/` - optional tactical icons with primitive drawing fallback
 - `gym_demo.py` - headless random-Action Gym smoke test
@@ -54,7 +51,7 @@ conda run -n pygame_lab python gym_demo.py
 Use human rendering from Python when visual inspection is needed:
 
 ```python
-from autonomy_lab.gym_env import AgentGymEnv
+from autonomy_lab.gym.env import AgentGymEnv
 
 env = AgentGymEnv(scenario="simple", render_mode="human")
 observation, info = env.reset(seed=42)
@@ -132,11 +129,10 @@ Visualizer.
 main.py
   -> scene_config.py / environment.py / agent.py
   -> perception.py
-  -> behavior_context.py / behaviors.py
-  -> behavior_registry.py / bt_loader.py
-  -> behavior_tree.py
-  -> renderer.py / bt_visualizer.py / experiment.py
-  -> gym_env.py
+  -> bt/context.py / bt/behaviors.py
+  -> bt/registry.py / bt/loader.py / bt/controller.py
+  -> rendering/renderer.py / bt/visualizer.py
+  -> experiment/recorder.py / gym/env.py
 ```
 
 一帧自主控制的完整数据流是：

@@ -7,9 +7,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 
-from .environment import Environment
-from .experiment import ExperimentRecorder
-from .scene_config import DEFAULT_SCENARIO, SCENES, get_scene
+from ..environment import Environment
+from ..experiment.recorder import ExperimentRecorder
+from ..scene_config import DEFAULT_SCENARIO, SCENES, get_scene
 
 
 SIMULATION_DT = 1.0 / 60.0
@@ -138,7 +138,7 @@ class AgentGymEnv(gym.Env[np.ndarray, np.ndarray]):
             return
         if self._renderer is None:
             # 延迟导入确保 headless 模式不触及 Renderer 的显示资源。
-            from .renderer import PygameRenderer
+            from ..rendering.renderer import PygameRenderer
 
             self._renderer = PygameRenderer(self.world)
         self._renderer.render(self.world, controller_name="gym")

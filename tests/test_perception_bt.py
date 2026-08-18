@@ -8,17 +8,17 @@ import unittest
 import pygame
 import py_trees
 
-import autonomy_lab.behaviors as behavior_nodes
-from autonomy_lab.behavior_context import BehaviorBuildContext
-from autonomy_lab.behavior_tree import BehaviorTreeController
-from autonomy_lab.behaviors import (
+import autonomy_lab.bt.behaviors as behavior_nodes
+from autonomy_lab.bt.behaviors import (
     MoveToTarget,
     ObstacleThreat,
     SearchTarget,
     TargetAvailable,
 )
+from autonomy_lab.bt.context import BehaviorBuildContext
+from autonomy_lab.bt.controller import BehaviorTreeController
 from autonomy_lab.environment import Environment
-from autonomy_lab.experiment import ExperimentRecorder
+from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.perception import AgentPerception
 from autonomy_lab.scene_config import get_scene
 

@@ -2,7 +2,7 @@
 
 import unittest
 
-from autonomy_lab.behavior_tree import BehaviorTreeController
+from autonomy_lab.bt.controller import BehaviorTreeController
 from autonomy_lab.environment import Environment
 from autonomy_lab.scene_config import get_scene
 

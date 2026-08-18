@@ -9,10 +9,10 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 import py_trees
 
-from autonomy_lab.behavior_tree import PANEL_WIDTH, BehaviorTreeController
-from autonomy_lab.bt_visualizer import BTVisualizer
+from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
+from autonomy_lab.bt.visualizer import BTVisualizer
 from autonomy_lab.environment import Environment
-from autonomy_lab.renderer import PygameRenderer
+from autonomy_lab.rendering.renderer import PygameRenderer
 from autonomy_lab.scene_config import get_scene
 
 

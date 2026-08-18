@@ -15,7 +15,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 
 import main as app
-from autonomy_lab.experiment import ExperimentRecorder
+from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.scene_config import get_scene
 
 

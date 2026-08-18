@@ -1,6 +1,6 @@
 """运行一个不创建窗口的 Gymnasium 随机 Action smoke test。"""
 
-from autonomy_lab.gym_env import AgentGymEnv
+from autonomy_lab.gym.env import AgentGymEnv
 
 
 def main() -> None:

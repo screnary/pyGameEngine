@@ -1,4 +1,4 @@
-"""把真实 py_trees Runtime Tree 转换为可交互观察的 Pygame 面板。
+"""在 BT 子包内把真实 py_trees Runtime Tree 转换为 Pygame 面板。
 
 Visualizer 不读取 BT JSON，也不参与决策。它只遍历 Controller 已构建的 root，
 因此画面结构、节点状态和实际执行树始终来自同一个 Runtime。

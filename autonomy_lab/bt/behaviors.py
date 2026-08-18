@@ -10,8 +10,8 @@ import math
 import pygame
 import py_trees
 
-from .behavior_context import BehaviorBuildContext
-from .perception import PerceivedGap, PerceivedObstacle, normalise_angle
+from ..perception import PerceivedGap, PerceivedObstacle, normalise_angle
+from .context import BehaviorBuildContext
 
 
 class AgentBehaviour(py_trees.behaviour.Behaviour):

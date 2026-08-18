@@ -11,8 +11,8 @@ import numpy as np
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
-from autonomy_lab.experiment import ExperimentRecorder
-from autonomy_lab.gym_env import AgentGymEnv
+from autonomy_lab.experiment.recorder import ExperimentRecorder
+from autonomy_lab.gym.env import AgentGymEnv
 
 
 class AgentGymEnvCoreTests(unittest.TestCase):
