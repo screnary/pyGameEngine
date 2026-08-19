@@ -3,21 +3,23 @@
 import argparse
 import csv
 import json
-import math
 from pathlib import Path
 from typing import Any, Sequence
 
-import numpy as np
 from stable_baselines3 import PPO
 
-from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
-from autonomy_lab.environment import Environment
-from autonomy_lab.experiment.recorder import ExperimentRecorder
-from autonomy_lab.gym.env import AgentGymEnv, SIMULATION_DT
-from autonomy_lab.scene_config import SCENES, get_scene
+from autonomy_lab.experiment.runners import (
+    BT_DECISION_FREQUENCY,
+    PPO_ACTION_REPEAT,
+    PPO_DECISION_FREQUENCY,
+    assert_initial_states_match,
+    run_bt_episode,
+    run_ppo_episode,
+)
+from autonomy_lab.scene_config import SCENES
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m41b_control10hz.zip"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments" / "comparisons"
 DEFAULT_SCENARIOS = (
@@ -27,9 +29,6 @@ DEFAULT_SCENARIOS = (
 )
 PRIMARY_SCENARIOS = {"rl_sanity", "ppo_simple_obstacle"}
 DEFAULT_SEEDS = tuple(range(4001, 4011))
-BT_DECISION_FREQUENCY = 60.0
-PPO_ACTION_REPEAT = 6
-PPO_DECISION_FREQUENCY = 60.0 / PPO_ACTION_REPEAT
 
 CSV_FIELDS = (
     "controller",
@@ -49,190 +48,6 @@ CSV_FIELDS = (
 def scenario_role(scenario: str) -> str:
     """区分主要 baseline 与不参与混合总体结论的 hard stress test。"""
     return "primary" if scenario in PRIMARY_SCENARIOS else "hard_stress_test"
-
-
-def capture_initial_state(world: Environment) -> dict[str, Any]:
-    """提取比较公平性所需的几何/动力学初态，不保存运行中对象引用。"""
-    return {
-        "world_size": [float(value) for value in world.world_size],
-        "agent_position": [
-            float(world.agent.position.x),
-            float(world.agent.position.y),
-        ],
-        "agent_heading": float(world.agent.heading),
-        "agent_speed": float(world.agent.speed),
-        "agent_radius": float(world.agent.radius),
-        "target_position": [float(world.target.x), float(world.target.y)],
-        "target_radius": float(world.target_radius),
-        "obstacles": [
-            [float(rect.x), float(rect.y), float(rect.width), float(rect.height)]
-            for rect in world.obstacles
-        ],
-    }
-
-
-def assert_initial_states_match(
-    bt_state: dict[str, Any],
-    ppo_state: dict[str, Any],
-    absolute_tolerance: float = 1e-7,
-) -> None:
-    """用合理浮点容差检查 BT/PPO 是否从同一个 World 几何初态启动。"""
-    for field in (
-        "world_size",
-        "agent_position",
-        "target_position",
-        "obstacles",
-    ):
-        if not np.allclose(
-            np.asarray(bt_state[field], dtype=float),
-            np.asarray(ppo_state[field], dtype=float),
-            rtol=0.0,
-            atol=absolute_tolerance,
-        ):
-            raise AssertionError(f"initial {field} differs between BT and PPO")
-    for field in (
-        "agent_heading",
-        "agent_speed",
-        "agent_radius",
-        "target_radius",
-    ):
-        if not math.isclose(
-            float(bt_state[field]),
-            float(ppo_state[field]),
-            rel_tol=0.0,
-            abs_tol=absolute_tolerance,
-        ):
-            raise AssertionError(f"initial {field} differs between BT and PPO")
-
-
-def _comparison_row(
-    payload: dict[str, Any],
-    decision_frequency: float,
-    decision_count: int,
-) -> dict[str, Any]:
-    """只把 Controller 公共性能指标和明确的决策时钟写入正式 CSV。"""
-    return {
-        "controller": payload["controller"],
-        "scenario": payload["scenario"],
-        "scenario_role": scenario_role(payload["scenario"]),
-        "seed": int(payload["seed"]),
-        "success": payload["result"] == "SUCCESS",
-        "elapsed_time": float(payload["elapsed_time"]),
-        "path_length": float(payload["path_length"]),
-        "collision_count": int(payload["collision_count"]),
-        "termination_reason": payload["termination_reason"],
-        "decision_frequency_hz": decision_frequency,
-        "decision_count": decision_count,
-    }
-
-
-def _pygame_window_closed() -> bool:
-    """Human demo 只响应关闭窗口；键盘输入不参与任何 Controller 决策。"""
-    import pygame
-
-    return any(event.type == pygame.QUIT for event in pygame.event.get())
-
-
-def run_bt_episode(
-    scenario: str,
-    seed: int,
-    output_dir: Path,
-    render_mode: str | None = None,
-    bt_config: str = "default",
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """以当前正式 60 Hz BT tick 运行一个完整 World Episode。"""
-    world = Environment(get_scene(scenario))
-    world.reset(seed=seed)
-    initial_state = capture_initial_state(world)
-    controller = BehaviorTreeController(world, bt_config=bt_config)
-    recorder = ExperimentRecorder(output_dir)
-    recorder.start_episode(
-        world,
-        scenario,
-        "bt",
-        track_bt=True,
-        bt_config_id=controller.bt_config_id,
-    )
-    renderer = None
-    if render_mode == "human":
-        from autonomy_lab.rendering.renderer import PygameRenderer
-
-        renderer = PygameRenderer(world, panel_width=PANEL_WIDTH)
-
-    decisions = 0
-    payload: dict[str, Any] | None = None
-    max_time = float(world.scene_config["experiment"]["max_episode_time"])
-    try:
-        while payload is None:
-            if renderer is not None and _pygame_window_closed():
-                payload = recorder.finish_episode("INTERRUPTED", "window_closed")
-                break
-
-            turn, throttle = controller.tick(SIMULATION_DT)
-            world.step({"turn": turn, "throttle": throttle}, SIMULATION_DT)
-            decisions += 1
-            recorder.update(
-                SIMULATION_DT,
-                world,
-                active_action=controller.active_behavior,
-                bt_ticked=True,
-            )
-
-            if world.target_reached:
-                payload = recorder.finish_episode("SUCCESS", "target_reached")
-            elif world.simulation_time >= max_time:
-                payload = recorder.finish_episode("TIMEOUT", "timeout")
-
-            if renderer is not None:
-                renderer.render(world, controller, "bt")
-                renderer.pace(round(BT_DECISION_FREQUENCY))
-    finally:
-        if renderer is not None:
-            renderer.close()
-        if recorder.active:
-            recorder.finish_episode("INTERRUPTED", "runner_closed")
-
-    if payload is None:
-        raise RuntimeError("BT Episode ended without a Recorder payload")
-    return _comparison_row(payload, BT_DECISION_FREQUENCY, decisions), initial_state
-
-
-def run_ppo_episode(
-    scenario: str,
-    seed: int,
-    output_dir: Path,
-    model: PPO,
-    render_mode: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """以 deterministic PPO 和固定 action-repeat 6 运行一个 Episode。"""
-    recorder = ExperimentRecorder(output_dir)
-    env = AgentGymEnv(
-        scenario=scenario,
-        render_mode=render_mode,
-        recorder=recorder,
-        recorder_controller="ppo",
-        action_repeat=PPO_ACTION_REPEAT,
-    )
-    decisions = 0
-    payload: dict[str, Any] | None = None
-    try:
-        observation, _ = env.reset(seed=seed)
-        initial_state = capture_initial_state(env.world)
-        while payload is None:
-            if render_mode == "human" and _pygame_window_closed():
-                payload = recorder.finish_episode("INTERRUPTED", "window_closed")
-                break
-            action, _ = model.predict(observation, deterministic=True)
-            observation, _, terminated, truncated, _ = env.step(action)
-            decisions += 1
-            if terminated or truncated:
-                payload = env.last_episode_payload
-    finally:
-        env.close()
-
-    if payload is None:
-        raise RuntimeError("PPO Episode ended without a Recorder payload")
-    return _comparison_row(payload, PPO_DECISION_FREQUENCY, decisions), initial_state
 
 
 def _mean(rows: list[dict[str, Any]], field: str) -> float | None:
@@ -287,7 +102,7 @@ def write_comparison_outputs(
     model_path: Path,
     seeds: Sequence[int],
 ) -> tuple[Path, Path]:
-    """可重复覆盖本次结构化比较结果，不触碰历史 M4.0/M4.1 目录。"""
+    """写入 M4.2 结构化结果，不触碰 M4.0/M4.1 历史目录。"""
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "m42_bt_vs_ppo.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
@@ -349,6 +164,10 @@ def run_batch(
                 model,
             )
             assert_initial_states_match(bt_state, ppo_state)
+            # scenario_role 是 M4.2 的编排语义，不属于公共 Episode runner。
+            role = scenario_role(scenario)
+            bt_row["scenario_role"] = role
+            ppo_row["scenario_role"] = role
             rows.extend((bt_row, ppo_row))
     return write_comparison_outputs(rows, output_dir, model_path, seeds)
 

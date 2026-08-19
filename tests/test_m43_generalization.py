@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from autonomy_lab.scene_config import get_scene
-from eval_m43_generalization import (
+from scripts.eval_m43_generalization import (
     M43_SCENARIO_GROUPS,
     build_generalization_summary,
     initial_detour_direction,

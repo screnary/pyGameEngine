@@ -9,14 +9,14 @@ from pathlib import Path
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
-from eval_ppo import (
+from scripts.eval_ppo import (
     EVALUATION_SEEDS,
     is_clearly_better,
     parse_args as parse_evaluation_args,
     run_evaluation,
     summarize_results,
 )
-from train_ppo import (
+from scripts.train_ppo import (
     additional_timesteps_to_target,
     parse_args as parse_training_args,
 )

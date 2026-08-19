@@ -92,7 +92,6 @@ Keep the codebase small. The current responsibility-based layout is:
 
 ```text
 main.py
-gym_demo.py
 autonomy_lab/
 ├── agent.py
 ├── environment.py
@@ -102,6 +101,14 @@ autonomy_lab/
 ├── rendering/
 ├── gym/
 └── experiment/
+    ├── recorder.py
+    └── runners.py
+scripts/
+├── gym_demo.py
+├── train_ppo.py
+├── eval_ppo.py
+├── compare_bt_ppo.py
+└── eval_m43_generalization.py
 ```
 
 Do not create modules until they are actually needed.
@@ -128,9 +135,33 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Milestone 4.4 project structure cleanup completed:
+
+* root keeps `main.py` as the primary interactive launcher; Gym/PPO/evaluation
+  entry points moved to the importable `scripts/` package
+* the supported commands are `python -m scripts.gym_demo`,
+  `python -m scripts.train_ppo`, `python -m scripts.eval_ppo`,
+  `python -m scripts.compare_bt_ppo`, and
+  `python -m scripts.eval_m43_generalization`
+* M4.2/M4.3 shared BT/PPO Episode execution, initial-state capture/matching, and
+  decision-frequency constants moved to `autonomy_lab/experiment/runners.py`
+* scenario/seed orchestration, CSV paths, milestone grouping, and summary logic
+  remain in their specific scripts; M4.3 no longer imports the M4.2 script
+* the distinct `eval_ppo` Random/PPO diagnostic loop remains local because it
+  records reward components and visibility/control diagnostics rather than the
+  M4.2/M4.3 public comparison-row contract
+* Core Simulation continues to import no BT, Gym, Rendering, Experiment, or
+  Scripts modules; no `autonomy_lab` module depends on `scripts/`
+* M4.0-M4.3 behavior, checkpoints, scenarios, metrics, and frozen result files
+  remain unchanged; M4.4 introduced no new experiment or training
+
+M4.4 changed structure only. It did not change BT/PPO behavior, Observation,
+Reward, Action, dynamics, Perception, collision/termination semantics, Recorder
+metrics, or M4.2/M4.3 statistics. No M5 work was started.
+
 Milestone 4.3 zero-shot geometry generalization completed:
 
-* `eval_m43_generalization.py` reuses the M4.2 BT/PPO episode runners and keeps
+* `scripts/eval_m43_generalization.py` reuses the shared BT/PPO episode runners and keeps
   the default BT plus `models/ppo_m41b_control10hz.zip` frozen
 * evaluation keeps World simulation at 60 Hz, BT tick at 60 Hz, and
   deterministic PPO at 10 Hz with `action_repeat=6`
@@ -169,8 +200,8 @@ experiments/comparisons/m43_human_demos/<scenario>/<controller>/
 Reproduction commands:
 
 ```text
-conda run -n pygame_lab python eval_m43_generalization.py
-conda run -n pygame_lab python eval_m43_generalization.py --human-demo
+conda run -n pygame_lab python -m scripts.eval_m43_generalization
+conda run -n pygame_lab python -m scripts.eval_m43_generalization --human-demo
 ```
 
 M4.3 did not modify or retrain BT/PPO, and did not change Observation, Reward,
@@ -180,7 +211,7 @@ started.
 
 Milestone 4.2 BT vs PPO baseline completed:
 
-* `compare_bt_ppo.py` runs the frozen default BT and
+* `scripts/compare_bt_ppo.py` runs the frozen default BT and
   `models/ppo_m41b_control10hz.zip` on the same Environment scenario and seed
 * each BT/PPO pair verifies Agent, Target, obstacle, radius, heading, speed, and
   World geometry initial state with a small floating-point tolerance
@@ -223,8 +254,8 @@ experiments/comparisons/human_demos/<scenario>/<controller>/
 Reproduction commands:
 
 ```text
-conda run -n pygame_lab python compare_bt_ppo.py
-conda run -n pygame_lab python compare_bt_ppo.py --human-demo
+conda run -n pygame_lab python -m scripts.compare_bt_ppo
+conda run -n pygame_lab python -m scripts.compare_bt_ppo --human-demo
 ```
 
 M4.2 did not retrain PPO or change BT topology/parameters, reward, Observation,
@@ -267,9 +298,9 @@ False-to-True transitions, while each actually executed contact step would add
 M4.1b commands:
 
 ```text
-conda run -n pygame_lab python train_ppo.py --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41b_control10hz.zip --log-label m41b_phase_a_training --init-model-path models/ppo_m40.zip --action-repeat 6
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_phase_a_200k --render-mode none --action-repeat 6
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_phase_a_human --render-mode human --action-repeat 6
+conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41b_control10hz.zip --log-label m41b_phase_a_training --init-model-path models/ppo_m40.zip --action-repeat 6
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_phase_a_200k --render-mode none --action-repeat 6
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_phase_a_human --render-mode human --action-repeat 6
 ```
 
 This controlled result supports excessive 60 Hz policy-decision frequency as
@@ -315,10 +346,10 @@ in a later, explicitly scoped milestone.
 M4.1a reproduction/evaluation commands:
 
 ```text
-conda run -n pygame_lab python train_ppo.py --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --init-model-path models/ppo_m40.zip
-conda run -n pygame_lab python train_ppo.py --scenario ppo_simple_obstacle --seed 44 --target-timesteps 500000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --resume
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_500k --render-mode none
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_human --render-mode human
+conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --init-model-path models/ppo_m40.zip
+conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 500000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --resume
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_500k --render-mode none
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_human --render-mode human
 ```
 
 Milestone 4.1 experiment executed (acceptance not met):
@@ -332,7 +363,7 @@ Milestone 4.1 experiment executed (acceptance not met):
   collision semantics, Perception, Renderer, and Behavior Tree remain unchanged
 * Ground-truth target distance is used only as privileged reward shaping during
   training; it is not exposed through Observation or info
-* `train_ppo.py` and `eval_ppo.py` now accept scenario, model/checkpoint, log, and
+* `scripts.train_ppo` and `scripts.eval_ppo` accept scenario, model/checkpoint, log, and
   evaluation-label inputs while preserving their M4.0 defaults
 * obstacle fine-tuning initialized from `models/ppo_m40.zip`, saved to
   `models/ppo_m41_obstacles.zip`, evaluated at 200k, then resumed without
@@ -349,9 +380,9 @@ baseline passed before the explicitly requested M4.2 comparison was started.
 M4.1 reproduction commands:
 
 ```text
-conda run -n pygame_lab python train_ppo.py --scenario ppo_simple_obstacles --seed 43 --target-timesteps 200000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --init-model-path models/ppo_m40.zip
-conda run -n pygame_lab python train_ppo.py --scenario ppo_simple_obstacles --seed 43 --target-timesteps 500000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --resume
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --evaluation-seed-start 2001 --tag m41_500k
+conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 200000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --init-model-path models/ppo_m40.zip
+conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 500000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --resume
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --evaluation-seed-start 2001 --tag m41_500k
 ```
 
 Milestone 4.0 completed (current):
@@ -364,10 +395,10 @@ Milestone 4.0 completed (current):
   step cost, collision-event penalty, and Target completion bonus
 * Ground Truth progress is used only by reward calculation and is not exposed in
   Observation
-* `train_ppo.py` trains one default `PPO("MlpPolicy")` environment, records SB3
+* `scripts.train_ppo` trains one default `PPO("MlpPolicy")` environment, records SB3
   Monitor episode evidence, and can resume the same checkpoint to a cumulative
   timestep target
-* `eval_ppo.py` compares Random and deterministic PPO with the same fixed seeds
+* `scripts.eval_ppo` compares Random and deterministic PPO with the same fixed seeds
   and reuses `ExperimentRecorder` metric definitions
 * the 50k evaluation checkpoint is retained; training resumed from that model to
   100k because the 50k deterministic policy did not yet outperform Random
@@ -377,10 +408,10 @@ Milestone 4.0 completed (current):
 Minimal commands:
 
 ```text
-conda run -n pygame_lab python train_ppo.py --target-timesteps 50000
-conda run -n pygame_lab python train_ppo.py --target-timesteps 100000 --resume
-conda run -n pygame_lab python eval_ppo.py --controller both --tag 100k
-conda run -n pygame_lab python eval_ppo.py --controller ppo --episodes 1 --render-mode human
+conda run -n pygame_lab python -m scripts.train_ppo --target-timesteps 50000
+conda run -n pygame_lab python -m scripts.train_ppo --target-timesteps 100000 --resume
+conda run -n pygame_lab python -m scripts.eval_ppo --controller both --tag 100k
+conda run -n pygame_lab python -m scripts.eval_ppo --controller ppo --episodes 1 --render-mode human
 ```
 
 Milestone 3.1 completed (current):
@@ -417,7 +448,7 @@ Milestone 3 completed (current):
 * `render_mode=None` creates no window or Renderer; `human` reuses the same
   read-only Pygame Renderer
 * Gym episodes can reuse `ExperimentRecorder`; BT-only metrics remain empty
-* `gym_demo.py` provides a random-Action headless smoke test
+* `scripts.gym_demo` provides a random-Action headless smoke test
 
 Gym registration, vectorized/multiprocess training, reward tuning, obstacle RL,
 BT+RL hybrid control, and other M4.1 work remain intentionally deferred.

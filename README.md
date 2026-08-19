@@ -1,69 +1,91 @@
 # Autonomy Lab
 
-A lightweight Pygame research prototype for two-dimensional autonomous-agent
-experiments.
+Autonomy Lab 是一个基于 Python、Pygame、`py_trees`、Gymnasium 和
+Stable-Baselines3 的二维自主智能体科研原型，用于快速验证：
 
-## Current structure
+- Behavior Tree 自主决策；
+- Reinforcement Learning；
+- 后续的 Behavior Tree + RL 混合控制。
+
+项目以可运行实验和可观察行为为优先，不以生产级框架或通用游戏引擎为目标。
+
+## Current Project Structure
 
 ```text
 project_root/
-├── main.py                         # BT / manual Pygame launcher
-├── gym_demo.py                     # headless Gymnasium smoke test
-├── train_ppo.py                    # PPO training and fine-tuning entry
-├── eval_ppo.py                     # Random / PPO evaluation and rendering
-├── compare_bt_ppo.py               # M4.2 frozen BT vs PPO comparison
-├── eval_m43_generalization.py      # M4.3 geometry generalization evaluation
+├── main.py                         # BT / manual Pygame 主入口
 │
 ├── autonomy_lab/
-│   ├── agent.py                    # Agent state and motion update
-│   ├── environment.py              # single World / simulation core
-│   ├── perception.py               # Target and obstacle perception snapshot
-│   ├── scene_config.py             # scenarios and experiment parameters
+│   ├── agent.py                    # Agent 状态与运动更新
+│   ├── environment.py              # 唯一 World / Simulation Core
+│   ├── perception.py               # Target 与 Obstacle 感知快照
+│   ├── scene_config.py             # Scenario 与实验参数
 │   │
 │   ├── bt/
-│   │   ├── behaviors.py            # executable condition/action nodes
-│   │   ├── context.py              # dependencies shared by BT nodes
-│   │   ├── registry.py             # behavior-name-to-class mapping
-│   │   ├── loader.py               # JSON definition to py_trees runtime
-│   │   ├── controller.py           # BT tick and Command output
-│   │   └── visualizer.py           # runtime tree visualization
+│   │   ├── behaviors.py            # 可执行 Condition / Action 节点
+│   │   ├── context.py              # BT 节点共享依赖
+│   │   ├── registry.py             # Behavior 名称到 Python class 的映射
+│   │   ├── loader.py               # JSON Definition → py_trees Runtime
+│   │   ├── controller.py           # BT tick 与 Command 输出
+│   │   └── visualizer.py           # Runtime Tree 可视化
 │   │
 │   ├── rendering/
-│   │   ├── renderer.py             # read-only Pygame rendering
-│   │   └── assets.py               # optional image loading and fallback
+│   │   ├── renderer.py             # 只读 Pygame Renderer
+│   │   └── assets.py               # 可选图片加载与 primitive fallback
 │   │
 │   ├── gym/
-│   │   └── env.py                  # Gymnasium adapter around Environment
+│   │   └── env.py                  # Environment 的 Gymnasium Adapter
 │   │
 │   └── experiment/
-│       └── recorder.py             # controller-independent Episode metrics
+│       ├── recorder.py             # Controller-independent Episode metrics
+│       └── runners.py              # BT / PPO 公共 Episode execution
+│
+├── scripts/
+│   ├── gym_demo.py                 # headless Gymnasium smoke test
+│   ├── train_ppo.py                # PPO training / fine-tuning 入口
+│   ├── eval_ppo.py                 # Random / PPO evaluation 与 rendering
+│   ├── compare_bt_ppo.py           # M4.2 frozen BT vs PPO comparison
+│   └── eval_m43_generalization.py  # M4.3 geometry generalization evaluation
 │
 ├── bt_configs/
-│   └── default.json                # bt-lab/v1 Behavior Tree definition
-├── assets/                         # optional local PNG icons
-├── models/                         # local PPO checkpoints
-├── experiments/                    # generated logs, trajectories and results
-├── tests/                          # focused unit and integration tests
-├── docs/                           # retained design and implementation notes
-├── environment.yml                 # pygame_lab Conda environment
-├── AGENTS.md                       # project working constraints
-└── PROJECT_GUIDE.md                # milestones and architecture boundaries
+│   └── default.json                # bt-lab/v1 Behavior Tree Definition
+├── assets/                         # 可选本地 PNG 图标
+├── models/                         # 本地 PPO checkpoints
+├── experiments/                    # 运行日志、trajectory 与统计结果
+├── tests/                          # 单元测试与轻量集成测试
+├── docs/                           # 已保留的设计与实现记录
+├── environment.yml                 # pygame_lab Conda Environment
+├── AGENTS.md                       # 项目工作约束
+└── PROJECT_GUIDE.md                # Milestone 与架构边界
 ```
 
-`Environment` remains the only simulation World. BT, Gym, and Rendering depend
-on the core package, while the core does not depend on those outer layers.
-`assets/`, `models/`, and `experiments/` are intentionally ignored by Git because
-they contain optional local resources or generated experiment artifacts.
+依赖方向保持为：
 
-## Run
+```text
+Core Simulation
+      ↓
+BT / Gym / Rendering
+      ↓
+Experiment
+      ↓
+Scripts
+```
 
-Behavior Tree control is the default:
+`Environment` 是唯一 World。Core 不反向依赖 BT、Gym、Rendering、Experiment
+或 Scripts；`autonomy_lab` 内部模块也不依赖 `scripts/`。
+
+`assets/`、`models/` 和 `experiments/` 保存可选本地资源或生成的实验产物，
+因此默认被 Git 忽略。
+
+## Quick Start
+
+项目使用 Conda Environment `pygame_lab`。默认启动 Behavior Tree Controller：
 
 ```powershell
 conda run -n pygame_lab python main.py
 ```
 
-Choose controller, Behavior Tree definition, or scenario:
+选择 Controller、BT Definition 或 Scenario：
 
 ```powershell
 conda run -n pygame_lab python main.py --controller bt --bt default
@@ -73,20 +95,46 @@ conda run -n pygame_lab python main.py --scenario obstacle_course
 conda run -n pygame_lab python main.py --scenario dense_obstacles
 ```
 
-Add or edit scenarios in `autonomy_lab/scene_config.py`. Each preset defines the
-world size, random seed, Agent parameters, Target, Obstacles, display options,
-and the small set of Behavior Tree experiment parameters.
+Manual Controller 操作：
 
-Controls: `W/S` or Up/Down to move, `A/D` or Left/Right to turn, and `R` to
-reset.
+- `W/S` 或 `↑/↓`：加速、减速或反向移动；
+- `A/D` 或 `←/→`：转向；
+- `R`：重置当前 Scenario；
+- 关闭窗口：结束运行。
 
-Run the Gymnasium adapter without a window:
+在 [scene_config.py](autonomy_lab/scene_config.py) 中新增或调整 Scenario。
+每个 preset 包含 World 尺寸、seed、Agent、Target、Obstacle、显示参数和少量
+Behavior Tree 实验参数。
+
+## Script Entry Points
+
+非交互式入口位于 `scripts/`：
 
 ```powershell
-conda run -n pygame_lab python gym_demo.py
+conda run -n pygame_lab python -m scripts.gym_demo
+conda run -n pygame_lab python -m scripts.train_ppo --help
+conda run -n pygame_lab python -m scripts.eval_ppo --help
+conda run -n pygame_lab python -m scripts.compare_bt_ppo --help
+conda run -n pygame_lab python -m scripts.eval_m43_generalization --help
 ```
 
-Use human rendering from Python when visual inspection is needed:
+## Simulation and Rendering Boundary
+
+`Environment.step(command, simulation_dt)` 是统一的 Simulation 入口。Manual、
+Behavior Tree 和 Gym 最终都生成同一种 Command：
+
+```text
+{"turn": float, "throttle": float}
+```
+
+Simulation 使用固定 `simulation_dt = 1/60 s`，不由真实 FPS 决定。
+`PygameRenderer` 只读取 World State，不修改 Simulation State。
+
+`render_mode=None` 不创建 Renderer、窗口、event loop 或 Clock；
+`render_mode="human"` 使用现有只读 Pygame Renderer。两种模式调用同一个
+`Environment.step()`。
+
+最小 Gymnasium human rendering 示例：
 
 ```python
 from autonomy_lab.gym.env import AgentGymEnv
@@ -99,17 +147,22 @@ observation, reward, terminated, truncated, info = env.step(
 env.close()
 ```
 
-`render_mode=None` does not create a Renderer, window, event loop, or Clock.
-Both modes use a fixed simulation step of `1/60` second and call the same
-`Environment.step()` implementation.
+## Gymnasium Interface
 
-## Gymnasium interface
+### Action
 
-The continuous `Box(shape=(2,))` action is `[turn, throttle]`, with both values
-in `[-1, 1]`. Manual input and Behavior Tree Actions produce the same Command
-keys before entering the World.
+连续 `Box(shape=(2,))` Action 为：
 
-The fixed 13-value `float32` observation contains, in order:
+```text
+[turn, throttle]
+```
+
+两个值均位于 `[-1, 1]`。Manual input 和 Behavior Tree Action 在进入 World 前
+也会转换为相同的 Command 表达。
+
+### Observation
+
+固定 13-D `float32` Observation 依次为：
 
 ```text
 speed,
@@ -119,163 +172,153 @@ perceived_obstacle_available, obstacle_distance, obstacle_bearing,
 left_clearance, right_clearance, top_clearance, bottom_clearance
 ```
 
-Distances and clearances are normalized. An invisible Target or missing
-perceived obstacle uses zero distance/bearing plus its visibility/availability
-flag, so the vector never exposes unavailable World ground truth.
+距离和 clearance 均经过归一化。Target 不可见或没有感知到 Obstacle 时，
+对应 distance/bearing 使用约定的中性值，并通过 visibility/availability flag
+区分。Observation 不泄露当前不可用的 World Ground Truth。
 
-The M4 reward adds normalized Target progress to `-0.001` per step, `-0.05`
-for a new collision event, and `+1.0` when the Target is reached. Ground-truth
-Target distance is used only as privileged reward shaping during training; it
-is not exposed through Observation or `info`. Target arrival sets `terminated`;
-the scene time limit sets `truncated`.
+### Reward
 
-## PPO models and rendering
-
-The current saved models are:
+M4 Reward 保持为：
 
 ```text
-models/ppo_m40.zip               M4.0 no-obstacle sanity model (passed)
-models/ppo_m41_obstacles.zip     M4.1 static-obstacle experiment (not passed)
-models/ppo_m41a_simple_obstacle.zip  M4.1a beacon-target experiment (not passed)
-models/ppo_m41b_control10hz.zip  M4.1b 10 Hz control experiment (passed)
+normalized target progress
+- 0.001 × executed simulation steps
+- 0.05 × new collision events
++ 1.0 when Target is reached
 ```
 
-`ppo_simple_obstacles` is the original **hard narrow-gap baseline**: two
-rectangles leave a 30 px visual slit that the 32 px Agent cannot traverse.
-`ppo_simple_obstacle` is the separate **simplified beacon-target baseline**:
-one rectangle blocks the direct route while leaving a wide lower route. In the
-latter scene, `los_enabled=False` skips only Target occlusion by obstacles.
-Target visibility still requires sensor range and FOV, and obstacle perception
-remains enabled. The beacon does not expose Target ground-truth coordinates or
-bearing to the policy.
+Ground-truth Target distance 只作为 training-only privileged reward shaping，
+不进入 Observation，也不通过 `info` 提供给 Policy。Target reached 对应
+`terminated=True`；Scenario time limit 对应 `truncated=True`。
 
-The simplest way to view M4.1 is to let `eval_ppo.py` load the model and run one
-deterministic Episode with the existing Pygame Renderer:
+## PPO Models and Scenarios
 
-```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller ppo --episodes 1 --evaluation-seed-start 2001 --tag m41_manual_view --render-mode human
-```
-
-This command performs the complete inference path:
+当前保留的 checkpoints：
 
 ```text
-PPO.load(model)
-  -> AgentGymEnv("ppo_simple_obstacles", render_mode="human")
-  -> model.predict(observation, deterministic=True)
-  -> Environment.step([turn, throttle])
-  -> PygameRenderer
+models/ppo_m40.zip                    M4.0 no-obstacle sanity（通过）
+models/ppo_m41_obstacles.zip          M4.1 hard narrow-gap（未通过）
+models/ppo_m41a_simple_obstacle.zip   M4.1a beacon-target（未通过）
+models/ppo_m41b_control10hz.zip       M4.1b 10 Hz control（通过）
 ```
 
-The window closes when the Episode reaches its 20-second simulation limit. Use
-`Ctrl+C` in the terminal to stop earlier. The current 500k M4.1 checkpoint did
-**not** meet the obstacle-navigation acceptance criterion: the rendered Agent
-approaches the obstacle, enters a local control loop, and times out instead of
-reliably going around it. The command is therefore useful for inspecting the
-recorded failure mode, not for demonstrating successful obstacle navigation.
+主要 RL Scenario：
 
-For comparison, the passed M4.0 model can be rendered with:
+- `rl_sanity`：无障碍、Target 初始可见，用于验证 PPO pipeline；
+- `ppo_simple_obstacles`：两个矩形形成不可通行的 30 px 狭缝，是
+  **hard narrow-gap baseline**；
+- `ppo_simple_obstacle`：单矩形障碍与宽裕绕行空间，是
+  **simplified beacon-target baseline**。
 
-```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario rl_sanity --model-path models/ppo_m40.zip --controller ppo --episodes 1 --evaluation-seed-start 1001 --tag m40_manual_view --render-mode human
-```
+在 `ppo_simple_obstacle` 中，`los_enabled=False` 只跳过 Target 的障碍遮挡；
+Target 仍受 sensor range 与 FOV 约束，Obstacle perception 仍然启用。
+Policy 不会获得 Target Ground Truth position 或 bearing。
 
-Run Random and PPO headlessly on the same ten M4.1 evaluation seeds with:
+## M4.0–M4.1b PPO Pipeline
 
-```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller both --episodes 10 --evaluation-seed-start 2001 --tag m41_manual_check --render-mode none
-```
+### M4.0 — PPO Pipeline Sanity
 
-The terminal prints success rate, mean elapsed time, mean path length, and mean
-collision count. Detailed Recorder output is written under:
+M4.0 在 `rl_sanity` 上证明当前 Environment、13-D Observation、连续 Action
+和 Reward 能够学习最简单的 Target Pursuit。最终模型：
 
 ```text
-experiments/m40_eval/<tag>/summary.json
-experiments/m40_eval/<tag>/<controller>/results.csv
-experiments/m40_eval/<tag>/<controller>/runs/episode_*.json
+models/ppo_m40.zip
 ```
 
-The retained experiment checkpoints are `m41_200k` and `m41_500k`. At both
-checkpoints Random and PPO achieved 0% success; see `PROJECT_GUIDE.md` for the
-bounded failure diagnosis. These checkpoints predate the later successful
-M4.1b 10 Hz baseline and M4.2 comparison.
-
-To inspect the M4.1a single-obstacle model visually, run:
+Human evaluation：
 
 ```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_manual_view --render-mode human
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario rl_sanity --model-path models/ppo_m40.zip --controller ppo --episodes 1 --evaluation-seed-start 1001 --tag m40_manual_view --render-mode human
 ```
 
-To reproduce its fixed-seed headless comparison, run:
+### M4.1 — Hard Narrow-gap Baseline
+
+M4.1 使用 `ppo_simple_obstacles`。200k 和 500k checkpoints 的 Random/PPO
+success rate 均为 0%，因此该模型被保留为失败证据，不作为成功导航模型。
+
+查看典型失败轨迹：
 
 ```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_manual_check --render-mode none
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller ppo --episodes 1 --evaluation-seed-start 2001 --tag m41_manual_view --render-mode human
 ```
 
-M4.1a also did not meet acceptance: Random and PPO both scored 0% at 200k and
-500k. The deterministic PPO approaches the obstacle, collides once, then keeps
-full throttle with almost no steering until timeout. Evaluation now writes
-`diagnostics.json` beside each controller's `results.csv`; it includes distance,
-visibility/action ratios, reward components, termination reason, and a reference
-to a typical trajectory under `runs/`. These checkpoints are retained as failure
-evidence rather than advertised as successful navigation models.
+该 deterministic PPO 接近障碍后进入局部控制循环，并在 20 秒 Simulation
+horizon 后 timeout。
 
-M4.1b keeps the World simulation at 60 Hz but lets PPO choose one Action every
-six internal steps (`action_repeat=6`, 10 Hz control). The same Command is held
-for those steps; progress, step cost, collision events, simulation time, and
-Recorder metrics are aggregated from the actual internal steps. The 200k Phase
-A model reached 100% success versus Random's 0% on seeds 3001-3010, so the
-optional contact-penalty Phase B was not run.
+### M4.1a — Simple Obstacle Diagnosis
 
-Render the successful M4.1b model with:
+M4.1a 将任务降级为 `ppo_simple_obstacle`，但保持 60 Hz PPO decision frequency。
+200k 与 500k 仍为 0% success：Policy 接近障碍、发生一次 collision event，
+随后几乎保持 full throttle 且缺少有效转向，最终 timeout。
+
+查看 M4.1a：
 
 ```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_manual_view --render-mode human --action-repeat 6
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_manual_view --render-mode human
 ```
 
-Reproduce the fixed-seed Random/PPO comparison with:
+Evaluation 会在 `results.csv` 旁生成 `diagnostics.json`，记录 Target distance、
+visibility ratio、Action 统计、Reward components、termination reason 和典型
+trajectory 文件。
 
-```powershell
-conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_manual_check --render-mode none --action-repeat 6
-```
+### M4.1b — 10 Hz Control Baseline
 
-The Adapter defaults remain `action_repeat=1` and
-`contact_penalty_per_step=0.0`, so existing M4.0/M4.1 commands keep their
-original one-decision/one-simulation-step behavior.
+M4.1b 保持 World Simulation 为 60 Hz，但设置 `action_repeat=6`，使 PPO 每
+6 个 internal simulation steps 决策一次，即约 10 Hz。相同 Command 在这 6 步
+内保持不变；simulation time、Reward、collision event 和 Recorder metrics
+仍按实际执行的 internal steps 计算。
 
-## M4.2 BT vs PPO comparison
-
-`compare_bt_ppo.py` evaluates the frozen default Behavior Tree against
-`models/ppo_m41b_control10hz.zip` on identical World initial states. World
-simulation remains 60 Hz; BT ticks at 60 Hz, while deterministic PPO decides at
-10 Hz with `action_repeat=6`. This is a comparison of the current complete
-controller baselines, not a decision-frequency-matched algorithm ablation.
-
-Run the three-scenario batch comparison with:
-
-```powershell
-conda run -n pygame_lab python compare_bt_ppo.py
-```
-
-Outputs are overwritten reproducibly at:
+Phase A 在 seeds 3001–3010 上达到：
 
 ```text
-experiments/comparisons/m42_bt_vs_ppo.csv
-experiments/comparisons/m42_bt_vs_ppo_summary.json
-experiments/comparisons/runs/<scenario>/<controller>/
+Random success rate = 0%
+PPO success rate    = 100%
 ```
 
-Run the four primary-scenario visual demos separately with:
+因此可选的 Phase B contact penalty 没有执行。
+
+查看成功的 M4.1b 模型：
 
 ```powershell
-conda run -n pygame_lab python compare_bt_ppo.py --human-demo
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_manual_view --render-mode human --action-repeat 6
 ```
 
-Human demo logs go under `experiments/comparisons/human_demos/` and do not
-modify the batch CSV or summary. Seeds 4001-4010 currently produce equivalent
-initial states because all compared layouts are fixed; they standardize the
-evaluation pipeline but do not demonstrate random generalization.
+复现 Random/PPO fixed-seed comparison：
 
-The retained M4.2 results are:
+```powershell
+conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_manual_check --render-mode none --action-repeat 6
+```
+
+Adapter 默认值仍为 `action_repeat=1`、`contact_penalty_per_step=0.0`，保证
+M4.0/M4.1 的旧调用语义不变。
+
+## M4.2 — BT vs PPO Baseline
+
+`scripts.compare_bt_ppo` 在相同 Environment、Scenario、seed 和 World 初态下
+比较 frozen default Behavior Tree 与 `models/ppo_m41b_control10hz.zip`：
+
+```text
+World Simulation = 60 Hz
+BT tick          = 60 Hz
+PPO decision     ≈ 10 Hz（action_repeat=6）
+```
+
+这是当前完整 Controller baseline 的比较，不是 decision-frequency-matched
+algorithm ablation。
+
+运行 batch comparison：
+
+```powershell
+conda run -n pygame_lab python -m scripts.compare_bt_ppo
+```
+
+运行独立 human demos：
+
+```powershell
+conda run -n pygame_lab python -m scripts.compare_bt_ppo --human-demo
+```
+
+冻结结果：
 
 ```text
 scenario                controller  success  time    path      collisions
@@ -287,41 +330,44 @@ ppo_simple_obstacles*   BT          100%     5.100s  772.9px   0
 ppo_simple_obstacles*   PPO         100%     3.350s  737.0px   0
 ```
 
-`*` marks the hard stress test, which is summarized separately and is not mixed
-into an overall success rate.
+`*` 表示单独解释的 hard stress test，不与 primary baseline 混合计算总体
+success rate。固定布局下 seeds 4001–4010 的初态等价，仅用于统一 evaluation
+pipeline，不表示随机泛化能力。
 
-## M4.3 zero-shot geometry generalization
-
-`eval_m43_generalization.py` reuses the frozen M4.2 episode runners to compare
-the default BT and `models/ppo_m41b_control10hz.zip`. No Controller is retrained
-or tuned. World simulation is 60 Hz, BT ticks at 60 Hz, and deterministic PPO
-decides at 10 Hz with `action_repeat=6`.
-
-Run the seven-scenario headless evaluation with:
-
-```powershell
-conda run -n pygame_lab python eval_m43_generalization.py
-```
-
-Run the separate eight-episode visual observation set with:
-
-```powershell
-conda run -n pygame_lab python eval_m43_generalization.py --human-demo
-```
-
-Batch and human outputs are intentionally separated:
+输出位置：
 
 ```text
-experiments/comparisons/m43_generalization.csv
-experiments/comparisons/m43_generalization_summary.json
-experiments/comparisons/m43_runs/<scenario>/<controller>/
-experiments/comparisons/m43_human_demos/<scenario>/<controller>/
+experiments/comparisons/m42_bt_vs_ppo.csv
+experiments/comparisons/m42_bt_vs_ppo_summary.json
+experiments/comparisons/runs/<scenario>/<controller>/
+experiments/comparisons/human_demos/<scenario>/<controller>/
 ```
 
-The fixed-layout evaluation uses seed 5001 once per Controller and scenario.
-The statistical unit is therefore an unseen scene, not a repeated random
-episode. Mild-unseen success means “how many of the four hand-authored scenes
-succeeded” and must not be read as a random-trial success probability.
+## M4.3 — Zero-shot Geometry Generalization
+
+`scripts.eval_m43_generalization` 复用公共 Episode runners，在不重新训练或调参
+的前提下评估 frozen BT 与 PPO：
+
+- `seen`：`rl_sanity`、`ppo_simple_obstacle`；
+- `unseen_mild`：`m43_target_shift`、`m43_obstacle_shift`、
+  `m43_reverse_detour`、`m43_combined_shift`；
+- `ood_hard`：`ppo_simple_obstacles`。
+
+运行 headless evaluation：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m43_generalization
+```
+
+运行 8 个独立 human observation Episodes：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m43_generalization --human-demo
+```
+
+固定布局仅运行 seed 5001；统计单位是 Scenario，不是随机重复 Episode。
+因此 `4/4` 表示“4 个手工构造的 mild unseen 场景全部成功”，不能解释为随机
+trial 的 success probability。
 
 ```text
 group         controller  successful scenes  mean time  mean path  mean collisions
@@ -333,95 +379,131 @@ ood_hard      BT          1/1                5.100 s    772.9 px   0.0
 ood_hard      PPO         1/1                3.350 s    737.0 px   0.0
 ```
 
-The four test-only mild variants change only Target/obstacle geometry:
-`m43_target_shift`, `m43_obstacle_shift`, `m43_reverse_detour`, and
-`m43_combined_shift`. In Reverse Detour the 32 px Agent has 28 px net upper
-clearance versus 68 px in the seen baseline, while the lower route has 268 px;
-real collision probes confirm that both routes remain traversable. BT selected
-the lower route. PPO retained its learned upper-route preference, incurred four
-collision events, and still reached the Target. Thus both Controllers passed
-4/4 mild scenes, but the frozen PPO did not adapt its initial detour side to the
-more favorable geometry. These few deterministic cases are useful behavioral
-probes, not evidence of arbitrary-map generalization.
+在 `m43_reverse_detour` 中，Agent 直径为 32 px：上方净余量从 baseline 的
+68 px 缩小到 28 px，但真实 collision probe 确认仍可通过；下方净余量为
+268 px。BT 选择下方且无碰撞；PPO 仍保持训练中形成的上方绕行偏好，发生
+4 次 collision events 后成功到达。
 
-## Behavior Tree
+这组结果说明 frozen PPO 通过了 4/4 个有限的 mild geometry probes，但没有
+根据 Reverse Detour 的新几何切换绕行方向。它是对 route-selection bias 的
+行为证据，不是任意地图上的 generalization 证明。
 
-The current topology is defined in `bt_configs/default.json`. The v1 format
-supports `selector`, `sequence`, `condition`, and `action` nodes with the common
-fields `type`, `name`, `behavior`, `memory`, `params`, and `children`.
+输出位置：
+
+```text
+experiments/comparisons/m43_generalization.csv
+experiments/comparisons/m43_generalization_summary.json
+experiments/comparisons/m43_runs/<scenario>/<controller>/
+experiments/comparisons/m43_human_demos/<scenario>/<controller>/
+```
+
+## Behavior Tree Definition
+
+当前 topology 定义在 `bt_configs/default.json`。`bt-lab/v1` 支持：
+
+```text
+selector
+sequence
+condition
+action
+```
+
+通用字段包括 `type`、`name`、`behavior`、`memory`、`params` 和 `children`。
 
 ```text
 bt_configs/default.json
-        -> BT Loader
-        -> Behavior Registry
-        -> py_trees runtime
-        -> Visualizer / Experiment Log
+        ↓
+BT Loader
+        ↓
+Behavior Registry
+        ↓
+py_trees Runtime
+        ↓
+Visualizer / Experiment Log
 ```
 
-JSON defines tree organization and optional parameter overrides. Python Behavior
-classes define node execution. Parameters omitted from JSON fall back to the
-selected scene's `behavior_tree` settings.
+JSON 决定 Tree topology、priority、组合和少量参数覆盖；Python Behavior class
+负责节点的具体执行。JSON 未提供的参数继续使用当前 Scenario 的
+`behavior_tree` 配置。
 
-Every registered leaf follows the same construction contract:
+所有已注册 leaf 使用统一构建约定：
 
 ```python
 Behavior(context=context, name=name, **params)
 ```
 
-The Registry therefore maps JSON names directly to classes; adding a conforming
-Behavior requires one Registry entry but no dedicated factory or Loader branch.
+因此新增符合约定的 Behavior 只需实现 class 并添加一条 Registry 映射，
+不需要专用 factory 或 Loader branch。
 
-The right-side panel reads topology, status, feedback, and the current visited
-path from the real `py_trees` runtime. Changing JSON node order or composition
-therefore changes both execution and visualization without editing the
-Visualizer.
+Visualizer 从真实 `py_trees` Runtime Tree 读取 topology、status、feedback 和
+active path，而不是直接绘制 JSON。调整 JSON node 顺序或组合时，Runtime 与
+Visualizer 会同步变化。
 
-## Recommended reading order
+## Recommended Reading Order
 
-源码中的中文教学注释按以下顺序阅读最容易理解：
+源码包含面向学习的中文 Docstring 与 block comments，建议按以下顺序阅读：
 
 ```text
 main.py
-  -> scene_config.py / environment.py / agent.py
-  -> perception.py
-  -> bt/context.py / bt/behaviors.py
-  -> bt/registry.py / bt/loader.py / bt/controller.py
-  -> rendering/renderer.py / bt/visualizer.py
-  -> experiment/recorder.py / gym/env.py
+  → autonomy_lab/scene_config.py
+  → autonomy_lab/environment.py / agent.py
+  → autonomy_lab/perception.py
+  → autonomy_lab/bt/context.py / behaviors.py
+  → autonomy_lab/bt/registry.py / loader.py / controller.py
+  → autonomy_lab/rendering/renderer.py / bt/visualizer.py
+  → autonomy_lab/experiment/recorder.py / runners.py
+  → autonomy_lab/gym/env.py
+  → scripts/
 ```
 
-一帧自主控制的完整数据流是：
+一帧自主控制的数据流：
 
 ```text
-Environment 当前状态
-  -> py_trees tick Conditions / Actions
-  -> Action 写入 context.command
-  -> Environment.step(command, 1/60)
-  -> motion / collision / termination / AgentPerception.update()
-  -> ExperimentRecorder.update() 记录实际结果
-  -> PygameRenderer / BTVisualizer 只读绘制画面
+Environment 当前 State
+  → py_trees tick Conditions / Actions
+  → Action 写入 context.command
+  → Environment.step(command, 1/60)
+  → motion / collision / termination / AgentPerception.update()
+  → ExperimentRecorder.update() 记录真实结果
+  → PygameRenderer / BTVisualizer 只读绘制
 ```
 
-## Rendering assets
+## Rendering Assets
 
-The renderer automatically uses `assets/agent.png`, `target.png`, and
-`obstacle.png` when they load successfully. Missing or invalid images fall back
-to Pygame primitives. `threat.png` and `waypoint.png` are reserved visual assets
-and do not add behavior.
+Renderer 会尝试加载：
 
-## Experiment recording
+```text
+assets/agent.png
+assets/target.png
+assets/obstacle.png
+```
 
-Every run starts an Episode and records controller-independent metrics. Target
-arrival saves `SUCCESS`, the scene's `max_episode_time` saves `TIMEOUT`, `R`
-saves `manual_reset` before starting a new Episode, and closing the window saves
-`window_closed`.
+图片不存在或加载失败时自动 fallback 到 Pygame primitives。
+`threat.png` 与 `waypoint.png` 目前只是预留视觉素材，不会增加对应业务行为。
+
+## Experiment Recording
+
+每次运行都会启动一个 Episode，并记录 Controller-independent metrics：
+
+- Simulation time；
+- path length；
+- collision event count；
+- trajectory samples；
+- 可选 BT tick 与 active-action transition count。
+
+结果状态包括：
+
+- Target reached → `SUCCESS`；
+- 达到 `max_episode_time` → `TIMEOUT`；
+- 按 `R` 重置 → `manual_reset`；
+- 关闭窗口 → `window_closed`。
+
+默认输出：
 
 ```text
 experiments/runs/episode_0001.json
 experiments/results.csv
 ```
 
-Metrics include simulation time, travelled distance, collision contacts,
-trajectory samples, and optional BT tick/action-transition counts. BT-controlled
-episodes also record the definition's `bt_config_id`; manual episodes leave it
-empty. Runtime-generated experiment files are ignored by Git.
+BT-controlled Episode 还会记录 `bt_config_id`；Manual Episode 该字段为空。
+运行时生成的实验文件默认被 Git 忽略。

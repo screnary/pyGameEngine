@@ -11,7 +11,8 @@ from autonomy_lab.gym.env import AgentGymEnv
 from autonomy_lab.scene_config import SCENES
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+# 脚本位于 ``scripts/``；所有默认模型和日志路径仍相对项目根目录。
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m40.zip"
 DEFAULT_SCENARIO = "rl_sanity"
 DEFAULT_LOG_LABEL = "m40_training"

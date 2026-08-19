@@ -2,6 +2,8 @@
 
 from autonomy_lab.gym.env import AgentGymEnv
 
+# 该模块通过 ``python -m scripts.gym_demo`` 从项目根目录运行。
+
 
 def main() -> None:
     """用固定 seed 推进最多 1000 步，并打印终止时的精简摘要。"""

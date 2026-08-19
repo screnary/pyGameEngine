@@ -8,9 +8,8 @@ from typing import Any, Sequence
 
 from stable_baselines3 import PPO
 
-from compare_bt_ppo import (
+from autonomy_lab.experiment.runners import (
     BT_DECISION_FREQUENCY,
-    DEFAULT_MODEL_PATH,
     PPO_ACTION_REPEAT,
     PPO_DECISION_FREQUENCY,
     assert_initial_states_match,
@@ -19,7 +18,8 @@ from compare_bt_ppo import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m41b_control10hz.zip"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments" / "comparisons"
 DEFAULT_SEED = 5001
 M43_SCENARIO_GROUPS = {

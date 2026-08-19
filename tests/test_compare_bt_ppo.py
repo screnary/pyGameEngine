@@ -15,7 +15,7 @@ from stable_baselines3 import PPO
 from autonomy_lab.environment import Environment
 from autonomy_lab.gym.env import AgentGymEnv
 from autonomy_lab.scene_config import get_scene
-from compare_bt_ppo import (
+from autonomy_lab.experiment.runners import (
     BT_DECISION_FREQUENCY,
     PPO_ACTION_REPEAT,
     PPO_DECISION_FREQUENCY,
@@ -23,6 +23,8 @@ from compare_bt_ppo import (
     capture_initial_state,
     run_bt_episode,
     run_ppo_episode,
+)
+from scripts.compare_bt_ppo import (
     summarize_rows,
     write_comparison_outputs,
 )
