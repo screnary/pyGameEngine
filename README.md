@@ -5,19 +5,55 @@ experiments.
 
 ## Current structure
 
-- `main.py` - direct launcher
-- `autonomy_lab/agent.py`, `environment.py`, `perception.py`, `scene_config.py` -
-  core simulation
-- `autonomy_lab/bt/` - Behavior nodes, Context, Registry, JSON Loader,
-  Runtime Controller, and Visualizer
-- `autonomy_lab/rendering/` - read-only Pygame Renderer and optional PNG loading
-- `autonomy_lab/gym/env.py` - Gymnasium adapter around the same World
-- `autonomy_lab/experiment/recorder.py` - controller-independent Episode metrics
-- `bt_configs/` - Behavior Tree definitions in `bt-lab/v1` JSON
-- `assets/` - optional tactical icons with primitive drawing fallback
-- `gym_demo.py` - headless random-Action Gym smoke test
-- `train_ppo.py` - single-environment PPO training/fine-tuning entry
-- `eval_ppo.py` - fixed-seed Random/PPO evaluation and human rendering entry
+```text
+project_root/
+├── main.py                         # BT / manual Pygame launcher
+├── gym_demo.py                     # headless Gymnasium smoke test
+├── train_ppo.py                    # PPO training and fine-tuning entry
+├── eval_ppo.py                     # Random / PPO evaluation and rendering
+├── compare_bt_ppo.py               # M4.2 frozen BT vs PPO comparison
+├── eval_m43_generalization.py      # M4.3 geometry generalization evaluation
+│
+├── autonomy_lab/
+│   ├── agent.py                    # Agent state and motion update
+│   ├── environment.py              # single World / simulation core
+│   ├── perception.py               # Target and obstacle perception snapshot
+│   ├── scene_config.py             # scenarios and experiment parameters
+│   │
+│   ├── bt/
+│   │   ├── behaviors.py            # executable condition/action nodes
+│   │   ├── context.py              # dependencies shared by BT nodes
+│   │   ├── registry.py             # behavior-name-to-class mapping
+│   │   ├── loader.py               # JSON definition to py_trees runtime
+│   │   ├── controller.py           # BT tick and Command output
+│   │   └── visualizer.py           # runtime tree visualization
+│   │
+│   ├── rendering/
+│   │   ├── renderer.py             # read-only Pygame rendering
+│   │   └── assets.py               # optional image loading and fallback
+│   │
+│   ├── gym/
+│   │   └── env.py                  # Gymnasium adapter around Environment
+│   │
+│   └── experiment/
+│       └── recorder.py             # controller-independent Episode metrics
+│
+├── bt_configs/
+│   └── default.json                # bt-lab/v1 Behavior Tree definition
+├── assets/                         # optional local PNG icons
+├── models/                         # local PPO checkpoints
+├── experiments/                    # generated logs, trajectories and results
+├── tests/                          # focused unit and integration tests
+├── docs/                           # retained design and implementation notes
+├── environment.yml                 # pygame_lab Conda environment
+├── AGENTS.md                       # project working constraints
+└── PROJECT_GUIDE.md                # milestones and architecture boundaries
+```
+
+`Environment` remains the only simulation World. BT, Gym, and Rendering depend
+on the core package, while the core does not depend on those outer layers.
+`assets/`, `models/`, and `experiments/` are intentionally ignored by Git because
+they contain optional local resources or generated experiment artifacts.
 
 ## Run
 
@@ -160,7 +196,8 @@ experiments/m40_eval/<tag>/<controller>/runs/episode_*.json
 
 The retained experiment checkpoints are `m41_200k` and `m41_500k`. At both
 checkpoints Random and PPO achieved 0% success; see `PROJECT_GUIDE.md` for the
-bounded failure diagnosis. M4.0 remains the latest passed RL milestone.
+bounded failure diagnosis. These checkpoints predate the later successful
+M4.1b 10 Hz baseline and M4.2 comparison.
 
 To inspect the M4.1a single-obstacle model visually, run:
 
@@ -204,6 +241,108 @@ conda run -n pygame_lab python eval_ppo.py --scenario ppo_simple_obstacle --mode
 The Adapter defaults remain `action_repeat=1` and
 `contact_penalty_per_step=0.0`, so existing M4.0/M4.1 commands keep their
 original one-decision/one-simulation-step behavior.
+
+## M4.2 BT vs PPO comparison
+
+`compare_bt_ppo.py` evaluates the frozen default Behavior Tree against
+`models/ppo_m41b_control10hz.zip` on identical World initial states. World
+simulation remains 60 Hz; BT ticks at 60 Hz, while deterministic PPO decides at
+10 Hz with `action_repeat=6`. This is a comparison of the current complete
+controller baselines, not a decision-frequency-matched algorithm ablation.
+
+Run the three-scenario batch comparison with:
+
+```powershell
+conda run -n pygame_lab python compare_bt_ppo.py
+```
+
+Outputs are overwritten reproducibly at:
+
+```text
+experiments/comparisons/m42_bt_vs_ppo.csv
+experiments/comparisons/m42_bt_vs_ppo_summary.json
+experiments/comparisons/runs/<scenario>/<controller>/
+```
+
+Run the four primary-scenario visual demos separately with:
+
+```powershell
+conda run -n pygame_lab python compare_bt_ppo.py --human-demo
+```
+
+Human demo logs go under `experiments/comparisons/human_demos/` and do not
+modify the batch CSV or summary. Seeds 4001-4010 currently produce equivalent
+initial states because all compared layouts are fixed; they standardize the
+evaluation pipeline but do not demonstrate random generalization.
+
+The retained M4.2 results are:
+
+```text
+scenario                controller  success  time    path      collisions
+rl_sanity               BT          100%     1.683s  370.3px   0
+rl_sanity               PPO         100%     1.983s  436.3px   0
+ppo_simple_obstacle     BT          100%     6.100s  783.2px   0
+ppo_simple_obstacle     PPO         100%     3.600s  792.0px   0
+ppo_simple_obstacles*   BT          100%     5.100s  772.9px   0
+ppo_simple_obstacles*   PPO         100%     3.350s  737.0px   0
+```
+
+`*` marks the hard stress test, which is summarized separately and is not mixed
+into an overall success rate.
+
+## M4.3 zero-shot geometry generalization
+
+`eval_m43_generalization.py` reuses the frozen M4.2 episode runners to compare
+the default BT and `models/ppo_m41b_control10hz.zip`. No Controller is retrained
+or tuned. World simulation is 60 Hz, BT ticks at 60 Hz, and deterministic PPO
+decides at 10 Hz with `action_repeat=6`.
+
+Run the seven-scenario headless evaluation with:
+
+```powershell
+conda run -n pygame_lab python eval_m43_generalization.py
+```
+
+Run the separate eight-episode visual observation set with:
+
+```powershell
+conda run -n pygame_lab python eval_m43_generalization.py --human-demo
+```
+
+Batch and human outputs are intentionally separated:
+
+```text
+experiments/comparisons/m43_generalization.csv
+experiments/comparisons/m43_generalization_summary.json
+experiments/comparisons/m43_runs/<scenario>/<controller>/
+experiments/comparisons/m43_human_demos/<scenario>/<controller>/
+```
+
+The fixed-layout evaluation uses seed 5001 once per Controller and scenario.
+The statistical unit is therefore an unseen scene, not a repeated random
+episode. Mild-unseen success means “how many of the four hand-authored scenes
+succeeded” and must not be read as a random-trial success probability.
+
+```text
+group         controller  successful scenes  mean time  mean path  mean collisions
+seen          BT          2/2                3.892 s    576.8 px   0.0
+seen          PPO         2/2                2.792 s    614.2 px   0.0
+unseen_mild   BT          4/4                6.050 s    781.3 px   0.0
+unseen_mild   PPO         4/4                3.613 s    788.9 px   1.0
+ood_hard      BT          1/1                5.100 s    772.9 px   0.0
+ood_hard      PPO         1/1                3.350 s    737.0 px   0.0
+```
+
+The four test-only mild variants change only Target/obstacle geometry:
+`m43_target_shift`, `m43_obstacle_shift`, `m43_reverse_detour`, and
+`m43_combined_shift`. In Reverse Detour the 32 px Agent has 28 px net upper
+clearance versus 68 px in the seen baseline, while the lower route has 268 px;
+real collision probes confirm that both routes remain traversable. BT selected
+the lower route. PPO retained its learned upper-route preference, incurred four
+collision events, and still reached the Target. Thus both Controllers passed
+4/4 mild scenes, but the frozen PPO did not adapt its initial detour side to the
+more favorable geometry. These few deterministic cases are useful behavioral
+probes, not evidence of arbitrary-map generalization.
 
 ## Behavior Tree
 

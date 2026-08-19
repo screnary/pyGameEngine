@@ -128,6 +128,109 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Milestone 4.3 zero-shot geometry generalization completed:
+
+* `eval_m43_generalization.py` reuses the M4.2 BT/PPO episode runners and keeps
+  the default BT plus `models/ppo_m41b_control10hz.zip` frozen
+* evaluation keeps World simulation at 60 Hz, BT tick at 60 Hz, and
+  deterministic PPO at 10 Hz with `action_repeat=6`
+* each fixed scenario runs once with seed 5001; the statistical unit is the
+  scenario, so mild-unseen success is reported as successful scenes out of four
+  rather than as repeated-episode probability
+* seen scenarios are `rl_sanity` and `ppo_simple_obstacle`; test-only mild
+  variants are `m43_target_shift`, `m43_obstacle_shift`,
+  `m43_reverse_detour`, and `m43_combined_shift`; `ppo_simple_obstacles` remains
+  a separately interpreted hard stress test
+* BT and PPO each passed 2/2 seen, 4/4 mild unseen, and 1/1 hard scenes; the
+  seen-to-mild success-rate drop was therefore zero for both Controllers
+* on mild unseen scenes BT averaged 6.050 s, 781.3 px, and zero collisions;
+  PPO averaged 3.613 s, 788.9 px, and one collision event per scene because all
+  four events occurred in Reverse Detour
+* Reverse Detour uses obstacle `(350, 60, 80, 240)`: for the 32 px Agent its
+  upper net clearance is 28 px versus 68 px in the seen baseline, while lower
+  net clearance is 268 px; real collision checks confirmed both routes remain
+  physically traversable
+* the trajectory-derived direction metric and human demo agree: BT selected
+  the wide lower route, whereas PPO retained its learned upper preference,
+  collided four times, then still reached the Target
+* this is evidence that the current frozen policies solve all four bounded
+  geometry probes, but PPO's unchanged detour side exposes a route-selection
+  bias; it does not establish arbitrary-map or distributional generalization
+
+M4.3 structured outputs:
+
+```text
+experiments/comparisons/m43_generalization.csv
+experiments/comparisons/m43_generalization_summary.json
+experiments/comparisons/m43_runs/<scenario>/<controller>/
+experiments/comparisons/m43_human_demos/<scenario>/<controller>/
+```
+
+Reproduction commands:
+
+```text
+conda run -n pygame_lab python eval_m43_generalization.py
+conda run -n pygame_lab python eval_m43_generalization.py --human-demo
+```
+
+M4.3 did not modify or retrain BT/PPO, and did not change Observation, Reward,
+Action, World dynamics, Perception, termination, collision semantics, Renderer,
+or Recorder schema. M4.2 outputs were kept intact and no later milestone was
+started.
+
+Milestone 4.2 BT vs PPO baseline completed:
+
+* `compare_bt_ppo.py` runs the frozen default BT and
+  `models/ppo_m41b_control10hz.zip` on the same Environment scenario and seed
+* each BT/PPO pair verifies Agent, Target, obstacle, radius, heading, speed, and
+  World geometry initial state with a small floating-point tolerance
+* World simulation remains 60 Hz; the current BT ticks at 60 Hz, while PPO uses
+  deterministic inference at 10 Hz with `action_repeat=6`
+* this is a comparison of the current complete Controller baselines, not a
+  decision-frequency-matched algorithm ablation
+* elapsed time, trajectory, path length, collision events, and termination are
+  recorded from actual World internal simulation steps; decision frequency and
+  decision count are additional comparison fields
+* evaluation used seeds 4001-4010; current fixed layouts make all ten initial
+  states equivalent, so these repetitions standardize the pipeline and do not
+  establish random generalization
+* `rl_sanity` and `ppo_simple_obstacle` are primary baselines;
+  `ppo_simple_obstacles` is a separately labeled hard stress test and is not
+  combined into a mixed overall success rate
+* both Controllers achieved 100% success and zero collisions in all three
+  scenarios; all termination reasons were `target_reached`
+* on `rl_sanity`, BT was faster and shorter: 1.683 s / 370.3 px versus PPO's
+  1.983 s / 436.3 px
+* on `ppo_simple_obstacle`, PPO was faster (3.600 s versus 6.100 s), while BT's
+  path was slightly shorter (783.2 px versus 792.0 px)
+* on the hard stress test, PPO was faster and shorter: 3.350 s / 737.0 px versus
+  BT's 5.100 s / 772.9 px
+* mean decision counts reflect each frozen Controller clock: BT used 101, 366,
+  and 306 decisions across the three scenarios; PPO used 20, 36, and 34
+* human trajectories show BT taking a straight line in `rl_sanity` while PPO
+  makes an unnecessary arc; in the single-obstacle scene BT routes below the
+  obstacle and PPO routes above it, both without collision or visible trapping
+
+M4.2 structured outputs:
+
+```text
+experiments/comparisons/m42_bt_vs_ppo.csv
+experiments/comparisons/m42_bt_vs_ppo_summary.json
+experiments/comparisons/runs/<scenario>/<controller>/
+experiments/comparisons/human_demos/<scenario>/<controller>/
+```
+
+Reproduction commands:
+
+```text
+conda run -n pygame_lab python compare_bt_ppo.py
+conda run -n pygame_lab python compare_bt_ppo.py --human-demo
+```
+
+M4.2 did not retrain PPO or change BT topology/parameters, reward, Observation,
+action repeat, dynamics, Perception, scenarios, termination, collision semantics,
+Renderer, or Recorder schema. No Hybrid BT+RL work was started.
+
 Milestone 4.1b Phase A completed (acceptance met):
 
 * `AgentGymEnv` now supports lightweight action repeat while keeping World
@@ -240,8 +343,8 @@ Milestone 4.1 experiment executed (acceptance not met):
   collision-free 3.33 s geometric route; the learned policy loses Target
   visibility near the obstacle and enters a local control loop
 
-M4.0 therefore remains the latest passed RL milestone. M4.2 work must not start
-automatically from this failed baseline.
+This M4.1 checkpoint remains retained failure evidence. The later M4.1b 10 Hz
+baseline passed before the explicitly requested M4.2 comparison was started.
 
 M4.1 reproduction commands:
 

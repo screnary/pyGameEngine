@@ -259,6 +259,65 @@ SCENES = {
 }
 
 
+def _make_m43_variant(
+    name: str,
+    *,
+    target_position: tuple[int, int] | None = None,
+    obstacle: tuple[int, int, int, int] | None = None,
+    geometry_change: str,
+) -> dict:
+    """从冻结的单障碍 baseline 派生一个纯几何、test-only 场景。
+
+    深拷贝保证 Observation、Perception、动力学、BT 参数和 episode horizon
+    与训练场景完全一致；这里只允许替换 Target/Obstacle 几何。
+    """
+    scene = deepcopy(SCENES["ppo_simple_obstacle"])
+    scene["name"] = name
+    if target_position is not None:
+        scene["target"]["position"] = target_position
+    if obstacle is not None:
+        scene["obstacles"] = [obstacle]
+    scene["test_only"] = True
+    scene["unseen_during_ppo_training"] = True
+    scene["evaluation_group"] = "unseen_mild"
+    scene["geometry_change"] = geometry_change
+    return scene
+
+
+# M4.3 只在冻结 Controller 上评价这些手工几何扰动；它们不参与任何训练。
+SCENES.update(
+    {
+        "m43_target_shift": _make_m43_variant(
+            "M4.3 Target Shift",
+            target_position=(730, 240),
+            geometry_change="Target moved from (750, 300) to (730, 240).",
+        ),
+        "m43_obstacle_shift": _make_m43_variant(
+            "M4.3 Obstacle Shift",
+            obstacle=(410, 140, 80, 240),
+            geometry_change=(
+                "Obstacle moved from (350, 100, 80, 240) to "
+                "(410, 140, 80, 240)."
+            ),
+        ),
+        "m43_reverse_detour": _make_m43_variant(
+            "M4.3 Reverse Detour",
+            obstacle=(350, 60, 80, 240),
+            geometry_change=(
+                "Obstacle moved upward: upper passage stays traversable but "
+                "has less clearance; lower passage is the wide near route."
+            ),
+        ),
+        "m43_combined_shift": _make_m43_variant(
+            "M4.3 Combined Shift",
+            target_position=(730, 350),
+            obstacle=(390, 130, 80, 240),
+            geometry_change="Target and obstacle both receive mild position shifts.",
+        ),
+    }
+)
+
+
 def get_scene(name: str) -> dict:
     """返回指定预设的深拷贝，防止运行时修改污染后续实验。
 
