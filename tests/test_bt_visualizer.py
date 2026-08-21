@@ -11,9 +11,9 @@ import py_trees
 
 from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
 from autonomy_lab.bt.visualizer import BTVisualizer
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.rendering.renderer import PygameRenderer
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.scenarios.config import get_scene
 
 
 def build_test_tree():
@@ -190,7 +190,7 @@ class BTVisualizerRuntimeTests(unittest.TestCase):
             surface, pygame.font.Font(None, 26), environment.world_size[0]
         )
         self.assertEqual(controller.visualizer.rebuild_count, 1)
-        self.assertEqual(len(controller.visualizer.visual_nodes), 16)
+        self.assertEqual(len(controller.visualizer.visual_nodes), 19)
         layout_panel = pygame.Rect(
             environment.world_size[0],
             132,

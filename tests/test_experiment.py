@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.experiment.recorder import ExperimentRecorder
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.scenarios.config import get_scene
 
 
 OLD_SUMMARY_FIELDS = (

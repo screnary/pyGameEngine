@@ -12,11 +12,11 @@ import numpy as np
 from stable_baselines3 import PPO
 
 from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.gym.env import AgentGymEnv, SIMULATION_DT
 from autonomy_lab.gym.hybrid_env import HybridPPOEnv
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.scenarios.config import get_scene
 
 
 BT_DECISION_FREQUENCY = 60.0

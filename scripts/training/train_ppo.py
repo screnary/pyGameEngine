@@ -8,11 +8,11 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
 from autonomy_lab.gym.env import AgentGymEnv
-from autonomy_lab.scene_config import SCENES
+from autonomy_lab.scenarios.config import SCENES
 
 
-# 脚本位于 ``scripts/``；所有默认模型和日志路径仍相对项目根目录。
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# 脚本位于 ``scripts/training/``；默认模型和日志仍相对项目根目录。
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m40.zip"
 DEFAULT_SCENARIO = "rl_sanity"
 DEFAULT_LOG_LABEL = "m40_training"

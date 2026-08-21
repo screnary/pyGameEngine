@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.eval_m53_final import (
+from scripts.evaluation.eval_m53_final import (
     CONTROLLERS,
     M53_SCENARIO_GROUPS,
     assert_adapter_equivalence,

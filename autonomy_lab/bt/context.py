@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 
 import py_trees
 
-from ..perception import AgentPerception
+from ..core.agent import AgentCommand
+from ..perception.semantic_perception import (
+    SemanticPerception,
+    SemanticPerceptionProvider,
+)
+from .parameters import ConditionParameters, ParameterStore
 
 
 @dataclass
@@ -22,13 +27,22 @@ class BehaviorBuildContext:
     """
 
     # 同一个 Context 会传给一棵树中的全部叶节点，因此感知和命令天然共享。
-    perception: AgentPerception
-    command: dict[str, float]
+    perception: SemanticPerceptionProvider
+    command: AgentCommand
     behavior_config: dict
     # HybridPPOEnv 训练时由外部 SB3 Policy 提供动作；默认 False 保持冻结
     # PPONavigate 自行加载 checkpoint 并推理的 M5.0/M5.1 行为。
     external_ppo_control: bool = False
+    # Research Conditions 每次 tick 都读取同一个可变 Store；legacy 节点忽略它。
+    condition_parameters: ParameterStore = field(
+        default_factory=ConditionParameters
+    )
     # Loader 每完成一个节点就写入此字典，后续节点即可按 JSON name 查找。
     nodes_by_name: dict[str, py_trees.behaviour.Behaviour] = field(
         default_factory=dict
     )
+
+    @property
+    def semantic(self) -> SemanticPerception:
+        """返回 Controller 在本 tick 已采集的只读 semantic observation。"""
+        return self.perception.snapshot

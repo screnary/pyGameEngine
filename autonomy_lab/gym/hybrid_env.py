@@ -9,10 +9,10 @@ from gymnasium import spaces
 import numpy as np
 
 from ..bt.controller import PANEL_WIDTH, BehaviorTreeController
-from ..environment import Environment
+from ..core.environment import Environment
 from ..experiment.recorder import ExperimentRecorder
-from ..observation import OBSERVATION_SIZE, build_navigation_observation
-from ..scene_config import SCENES, get_scene
+from ..core.observation import OBSERVATION_SIZE, build_navigation_observation
+from ..scenarios.config import SCENES, get_scene
 from .env import AgentGymEnv, SIMULATION_DT
 
 

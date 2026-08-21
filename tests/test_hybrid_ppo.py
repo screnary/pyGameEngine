@@ -9,10 +9,10 @@ import numpy as np
 import py_trees
 
 from autonomy_lab.bt.controller import BehaviorTreeController
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.experiment.runners import run_bt_episode
-from autonomy_lab.observation import build_navigation_observation
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.core.observation import build_navigation_observation
+from autonomy_lab.scenarios.config import get_scene
 
 
 class FakeFrozenModel:

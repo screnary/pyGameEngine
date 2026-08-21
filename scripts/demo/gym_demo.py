@@ -2,7 +2,7 @@
 
 from autonomy_lab.gym.env import AgentGymEnv
 
-# 该模块通过 ``python -m scripts.gym_demo`` 从项目根目录运行。
+# 该模块通过 ``python -m scripts.demo.gym_demo`` 从项目根目录运行。
 
 
 def main() -> None:

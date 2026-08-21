@@ -17,10 +17,10 @@ from autonomy_lab.bt.behaviors import (
 )
 from autonomy_lab.bt.context import BehaviorBuildContext
 from autonomy_lab.bt.controller import BehaviorTreeController
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.experiment.recorder import ExperimentRecorder
-from autonomy_lab.perception import AgentPerception
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.perception.pygame_perception import AgentPerception
+from autonomy_lab.scenarios.config import get_scene
 
 
 def make_environment(
@@ -317,6 +317,7 @@ class PerceptionControllerTests(unittest.TestCase):
         self.assertEqual(
             [node.name for node in controller.root.children],
             [
+                "Boundary Recovery",
                 "Obstacle Avoidance",
                 "Target Gap Navigation",
                 "Target Pursuit",
@@ -359,7 +360,7 @@ class PerceptionControllerTests(unittest.TestCase):
             ],
             ["Traversable Gap?", "Move Through Exploration Gap"],
         )
-        self.assertEqual(len(list(controller.root.iterate())), 16)
+        self.assertEqual(len(list(controller.root.iterate())), 19)
         self.assertFalse(controller.root.memory)
         self.assertTrue(controller.nodes_by_name["Obstacle Avoidance"].memory)
         self.assertTrue(controller.nodes_by_name["Target Gap Navigation"].memory)

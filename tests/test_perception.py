@@ -5,9 +5,9 @@ import unittest
 
 import pygame
 
-from autonomy_lab.environment import Environment
-from autonomy_lab.perception import AgentPerception
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.core.environment import Environment
+from autonomy_lab.perception.pygame_perception import AgentPerception
+from autonomy_lab.scenarios.config import get_scene
 
 
 def make_environment(
@@ -131,9 +131,10 @@ class ObstaclePerceptionTests(unittest.TestCase):
         snapshot = AgentPerception(environment).update()
 
         self.assertEqual(
-            [item.rect for item in snapshot.visible_obstacles],
-            [environment.obstacles[1], environment.obstacles[0]],
+            [item.distance for item in snapshot.visible_obstacles],
+            [84.0, 184.0],
         )
+        self.assertFalse(hasattr(snapshot.visible_obstacles[0], "rect"))
         self.assertAlmostEqual(snapshot.visible_obstacles[0].distance, 84.0)
         self.assertAlmostEqual(snapshot.visible_obstacles[0].bearing, 0.0)
         self.assertEqual(snapshot.nearest_obstacle, snapshot.visible_obstacles[0])

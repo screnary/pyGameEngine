@@ -9,6 +9,25 @@
     "children": [
       {
         "type": "sequence",
+        "name": "Boundary Recovery",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Boundary Risk?",
+            "behavior": "BoundaryRisk",
+            "params": {"margin": 40.0}
+          },
+          {
+            "type": "action",
+            "name": "Safe Boundary Recovery",
+            "behavior": "SafeBoundaryRecovery",
+            "params": {"throttle": 0.5}
+          }
+        ]
+      },
+      {
+        "type": "sequence",
         "name": "Obstacle Avoidance",
         "memory": true,
         "children": [

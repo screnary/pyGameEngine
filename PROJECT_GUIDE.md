@@ -93,11 +93,18 @@ Keep the codebase small. The current responsibility-based layout is:
 ```text
 main.py
 autonomy_lab/
-├── agent.py
-├── environment.py
-├── perception.py
-├── scene_config.py
+├── core/
+│   ├── agent.py
+│   ├── environment.py
+│   └── observation.py
+├── perception/
+│   ├── semantic_perception.py
+│   └── pygame_perception.py
+├── scenarios/
+│   ├── config.py
+│   └── scenario_distribution.py
 ├── bt/
+│   └── parameters.py
 ├── rendering/
 ├── gym/
 │   ├── env.py
@@ -106,15 +113,9 @@ autonomy_lab/
     ├── recorder.py
     └── runners.py
 scripts/
-├── gym_demo.py
-├── train_ppo.py
-├── eval_ppo.py
-├── compare_bt_ppo.py
-├── eval_m43_generalization.py
-├── eval_m51_hybrid.py
-├── train_hybrid_ppo.py
-├── eval_m52_hybrid.py
-└── eval_m53_final.py
+├── demo/
+├── training/
+└── evaluation/
 ```
 
 Do not create modules until they are actually needed.
@@ -141,9 +142,165 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Pre-M6 Responsibility Grouping completed:
+
+* World, Agent dynamics, and the frozen 13-D encoder live under `core/`
+* simulator-neutral semantics and the current Pygame provider live under
+  `perception/`; `SemanticPerception` is not research-only infrastructure
+* fixed scene presets and R0.4 distributions live under `scenarios/`, with the
+  former `scene_config.py` renamed to `config.py`
+* the generic `ParameterSpec/ParameterStore` remains under `bt/parameters.py`
+* runnable modules are grouped under `scripts/demo`, `scripts/training`, and
+  `scripts/evaluation` without changing their algorithms or default output roots
+* flat legacy import paths were removed rather than retained through a
+  compatibility layer
+
+M4/M5/R0 semantics remain frozen and M6 has not started.
+
+### Previous Milestone Record — R0.6
+
+R0.6 Generic Parameter Interface completed:
+
+* `ParameterSpec` stores a continuous parameter's name, current value, default,
+  and inclusive minimum/maximum bounds as plain Python data
+* `ParameterStore` provides one RL-independent `get/set/reset/reset_all/bounds/spec`
+  interface and rejects unknown, non-numeric, non-finite, or out-of-range updates
+* `ConditionParameters` now delegates to the generic Store while preserving the
+  R0.3/R0.5 properties, constructor, defaults, ranges, and batch compatibility API
+* Hazard, Boundary, and Goal Conditions read their named Store value every tick;
+  they do not cache build-time thresholds or know how parameter updates are produced
+* the Store treats a future Action parameter exactly like a Condition parameter;
+  no Action behavior or learnable-node hierarchy was added
+* the fixed Research BT produces the same branch decisions for the same semantic
+  observation and theta values, while legacy M4/M5 paths remain unchanged
+
+R0.1 through R0.6 are **COMPLETE**. Parameter optimizers, PPO/CMA-ES updates,
+Action parameter migration, smoothing/hysteresis, and all M6 features were not started.
+
+### Previous Milestone Record — R0.5
+
+R0.5 Research Interface Stabilization completed:
+
+* `SemanticPerceptionProvider` defines the minimal simulator adapter contract:
+  one `observe()` per control tick followed by read-only access to `snapshot`
+* Pygame `AgentPerception` satisfies that contract while retaining `update()`
+  and legacy properties for frozen M4/M5 compatibility
+* semantic dataclasses contain only plain immutable values; Agent radius is a
+  scalar core field, while Boundary and Pygame-derived gaps expose explicit
+  availability metadata
+* all Conditions and Actions used by `condition_research.json` execute from
+  `SemanticPerception + ConditionParameters` without a simulator World reference
+* `AgentCommand` is the shared typed control shape used by Research, BT, Manual,
+  Gym, and `Environment.step()`; no second research action representation exists
+* `ConditionParameters` now exposes copy-safe get/set/reset/bounds methods while
+  remaining a plain RL-independent mutable Store
+* all five R0.4 families traverse the same Scenario → Environment → Provider →
+  SemanticPerception → Research BT pipeline without family-specific method code
+* `scripts.demo.demo_scenario_distribution` accepts family, seed, and three manual
+  Condition thresholds as the minimal human research smoke entry
+* the frozen legacy 13-D Observation, PPO checkpoints, Hybrid runtime, BT configs,
+  and historical results remain separate and compatible
+
+R0.5 was **COMPLETE**. At that stage the generic `ParameterSpec/ParameterStore`,
+parameter optimizers, Condition-RL, and all M6 features had not started.
+
+### Previous Milestone Record — R0.4
+
+R0.4 Scenario Distribution completed:
+
+* `ScenarioDistribution(family).sample(seed)` returns a normal scene dict that
+  the existing `Environment` consumes without a parallel simulation framework
+* five research families cover static random geometry, denser static risk,
+  boundary-reflecting dynamic Hazard, seeded Hazard-range noise, and a fixed
+  three-phase within-episode context shift
+* R0.1 narrow-passage and boundary-obstacle scenes remain unchanged and are
+  also exposed as deterministic research grouping aliases
+* dynamic and static Hazards share the existing obstacle Rect list, so current
+  collision, LOS, sector/gap perception, and rendering paths remain unified
+* perception noise is applied only when constructing Semantic Hazard clearance;
+  collision geometry, sector truth, Goal sensing, and legacy fixed scenes stay clean
+* family, seed, Hazard count, dynamic state, noise level, and current phase are
+  available through lightweight scene/World diagnostics
+* sampled geometry, dynamic replay, noise sequence, and schedule are controlled
+  by local seed state and do not use global random state
+* the Parameterized Research BT runs all generated families with its fixed
+  handcrafted Actions and manually configured thresholds
+* `scripts.demo.demo_scenario_distribution` provides a 60 Hz human visualization
+  with family/seed selection, same-seed reset, and context diagnostics
+
+R0.4 is **COMPLETE**. At that stage Condition-RL, delta-theta policies,
+curriculum systems, Safety-Gym integration, procedural mazes, and R0.5/M6 had
+not started.
+
+### Previous Milestone Record — R0.3
+
+R0.3 Parameterized Research BT completed:
+
+* `bt_configs/condition_research.json` defines a fixed handcrafted tree with
+  Boundary Recovery, Hazard Avoidance, Goal Reached/Stop, and Move To Goal
+* a shared mutable `ConditionParameters` holds finite non-negative Hazard,
+  Boundary, and Goal thresholds with stable defaults of 90/40/30 px
+* each parameterized Condition reads the current Store value on every tick, so
+  changing a threshold affects the next decision without rebuilding the tree
+* Research Conditions consume only nested `SemanticPerception.goal`, `.hazard`,
+  and `.boundary` values; World Ground Truth is not read directly
+* runtime feedback reports the observed distance/clearance and current theta
+* existing R0.1 safe steering and handcrafted Actions are reused unchanged
+* `default.json`, `hybrid_ppo.json`, the 13-D Observation, checkpoints, and
+  frozen PPO/Hybrid paths remain compatible
+
+R0.3 is **COMPLETE**. At that stage Condition-RL, learned delta-theta output,
+smoothing, hysteresis, switching penalties, dynamic topology, and R0.4 had not
+started.
+
+### Previous Milestone Record — R0.2
+
+R0.2 Semantic Perception Refactor completed:
+
+* `SemanticPerception` is now the single `AgentPerception` output and groups
+  immutable `AgentState`, `GoalPerception`, `HazardPerception`, and
+  `BoundaryPerception` values
+* semantic values contain plain Python scalars/tuples only; pygame geometry and
+  World objects remain local to the Pygame perception computation
+* Goal sensing remains range/FOV/raw-obstacle optical LOS, while Hazard owns
+  footprint-aware local clearance, 12 sector ranges, and traversable gaps
+* read-only legacy properties map existing Target/Obstacle names to the same
+  nested values without recomputation or a parallel perception implementation
+* the legacy Observation Builder now reads semantic Agent/Goal/Hazard/Boundary
+  fields and remains numerically identical for the three frozen M4 scenarios
+* current BT, R0.1 regressions, Pure PPO, Frozen Hybrid, and HybridPPOEnv remain
+  operational without PPO training or checkpoint changes
+
+R0.2 is **COMPLETE**. At that stage Parameterized Conditions, Condition-RL,
+Safety-Gym, Observation expansion, Search redesign, and R0.3 had not started.
+
+### Previous Milestone Record — R0.1
+
+R0.1 Perception & Navigation Bug Fix completed:
+
+* Goal sensing now uses range/FOV and raw-obstacle optical LOS only; Agent
+  footprint inflation is reserved for traversability and free-space sensing
+* `AgentPerception` exposes 12 full-circle, footprint-aware sector clearances
+  to BT/navigation without changing the frozen legacy 13-D PPO observation
+* `choose_safe_steering()` scores desired direction together with obstacle and
+  boundary clearance; `SafeBoundaryRecovery` locks a detour side while the
+  inward route is blocked, and `AvoidObstacle` compares both lateral sides
+* the default BT now places `Boundary Recovery` above `Obstacle Avoidance`;
+  existing target pursuit, gap navigation, exploration, and Search branches
+  retain their prior order and behavior
+* fixed test-only `r01_narrow_passage` and `r01_boundary_obstacle` scenarios
+  protect optical sensing/traversability separation and safety-action recovery
+* frozen M4/M5 checkpoints were evaluated without training; Pure PPO results
+  remained unchanged and the Frozen Hybrid/external Adapter remained equivalent
+
+R0.1 is **COMPLETE**. It does not introduce semantic perception, target memory,
+new PPO observations, planners, Condition-RL, or R0.2 work.
+
+### Previous Milestone Record — M5.3
+
 Milestone 5.3 Hybrid BT-RL Final Evaluation & Milestone Closure completed:
 
-* `scripts/eval_m53_final.py` reuses the common Episode runners to evaluate
+* `scripts/evaluation/eval_m53_final.py` reuses the common Episode runners to evaluate
   BT, Pure PPO, Frozen Hybrid, and the preserved 200,704-step Hybrid-trained
   PPO on the seven fixed M5.1 scenarios; it does not call PPO training
 * seed 5001 remains a fixed-pipeline identifier. The statistical unit is one
@@ -184,8 +341,8 @@ experiments/comparisons/m53/runs/<scenario>/<controller>/
 experiments/comparisons/m53/adapter_equivalence_runs/<scenario>/
 experiments/comparisons/m53/human_demos/<scenario>/<controller>/
 
-conda run -n pygame_lab python -m scripts.eval_m53_final
-conda run -n pygame_lab python -m scripts.eval_m53_final --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final
+conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final --human-demo
 ```
 
 Milestone 5.2 Hybrid PPO Lab Adapter framework validation completed:
@@ -205,7 +362,7 @@ Milestone 5.2 Hybrid PPO Lab Adapter framework validation completed:
 * external-action mode is opt-in. Existing frozen Hybrid execution remains the
   default, and a seven-scenario adapter equivalence smoke check matched its
   success, elapsed time, path length, and collisions
-* `scripts/train_hybrid_ppo.py` now defaults to a 2,048-decision smoke run.
+* `scripts/training/train_hybrid_ppo.py` now defaults to a 2,048-decision smoke run.
   Longer training requires an explicit `--target-timesteps` value because the
   current project focus is Lab framework correctness, not PPO optimization
 * a completed 200,704-step checkpoint is preserved as diagnostic evidence. It
@@ -221,13 +378,13 @@ final evaluation above.
 M5.2 framework commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.train_hybrid_ppo --model-path models/ppo_m52_smoke.zip --log-label m52_hybrid_smoke
-conda run -n pygame_lab python -m scripts.eval_m52_hybrid --model-path models/ppo_m52_hybrid_trained_200k.zip --checkpoint-label 200k
+conda run -n pygame_lab python -m scripts.training.train_hybrid_ppo --model-path models/ppo_m52_smoke.zip --log-label m52_hybrid_smoke
+conda run -n pygame_lab python -m scripts.evaluation.eval_m52_hybrid --model-path models/ppo_m52_hybrid_trained_200k.zip --checkpoint-label 200k
 ```
 
 Milestone 5.1 Hybrid Evaluation & Behavior Analysis completed:
 
-* `scripts/eval_m51_hybrid.py` evaluates the frozen default BT, deterministic
+* `scripts/evaluation/eval_m51_hybrid.py` evaluates the frozen default BT, deterministic
   `models/ppo_m41b_control10hz.zip`, and `hybrid_ppo.json` on the same seven
   fixed scenarios and verifies matching World initial states
 * World simulation and BT supervision remain 60 Hz; Pure PPO and the active
@@ -270,8 +427,8 @@ experiments/comparisons/m51/human_demos/<scenario>/<controller>/
 Reproduction commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.eval_m51_hybrid
-conda run -n pygame_lab python -m scripts.eval_m51_hybrid --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid
+conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid --human-demo
 ```
 
 Milestone 5.0 Frozen PPO Action Integration completed:
@@ -307,11 +464,11 @@ Milestone 4.4 project structure cleanup completed:
 
 * root keeps `main.py` as the primary interactive launcher; Gym/PPO/evaluation
   entry points moved to the importable `scripts/` package
-* the supported commands include `python -m scripts.gym_demo`,
-  `python -m scripts.train_ppo`, `python -m scripts.eval_ppo`,
-  `python -m scripts.compare_bt_ppo`, and
-  `python -m scripts.eval_m43_generalization`; M5.1 later added
-  `python -m scripts.eval_m51_hybrid`
+* the supported commands include `python -m scripts.demo.gym_demo`,
+  `python -m scripts.training.train_ppo`, `python -m scripts.evaluation.eval_ppo`,
+  `python -m scripts.evaluation.compare_bt_ppo`, and
+  `python -m scripts.evaluation.eval_m43_generalization`; M5.1 later added
+  `python -m scripts.evaluation.eval_m51_hybrid`
 * M4.2/M4.3 shared BT/PPO Episode execution, initial-state capture/matching, and
   decision-frequency constants moved to `autonomy_lab/experiment/runners.py`
 * scenario/seed orchestration, CSV paths, milestone grouping, and summary logic
@@ -330,7 +487,7 @@ metrics, or M4.2/M4.3 statistics. M4.4 itself did not start M5 work.
 
 Milestone 4.3 zero-shot geometry generalization completed:
 
-* `scripts/eval_m43_generalization.py` reuses the shared BT/PPO episode runners and keeps
+* `scripts/evaluation/eval_m43_generalization.py` reuses the shared BT/PPO episode runners and keeps
   the default BT plus `models/ppo_m41b_control10hz.zip` frozen
 * evaluation keeps World simulation at 60 Hz, BT tick at 60 Hz, and
   deterministic PPO at 10 Hz with `action_repeat=6`
@@ -369,8 +526,8 @@ experiments/comparisons/m43_human_demos/<scenario>/<controller>/
 Reproduction commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.eval_m43_generalization
-conda run -n pygame_lab python -m scripts.eval_m43_generalization --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m43_generalization
+conda run -n pygame_lab python -m scripts.evaluation.eval_m43_generalization --human-demo
 ```
 
 M4.3 did not modify or retrain BT/PPO, and did not change Observation, Reward,
@@ -380,7 +537,7 @@ started.
 
 Milestone 4.2 BT vs PPO baseline completed:
 
-* `scripts/compare_bt_ppo.py` runs the frozen default BT and
+* `scripts/evaluation/compare_bt_ppo.py` runs the frozen default BT and
   `models/ppo_m41b_control10hz.zip` on the same Environment scenario and seed
 * each BT/PPO pair verifies Agent, Target, obstacle, radius, heading, speed, and
   World geometry initial state with a small floating-point tolerance
@@ -423,8 +580,8 @@ experiments/comparisons/human_demos/<scenario>/<controller>/
 Reproduction commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.compare_bt_ppo
-conda run -n pygame_lab python -m scripts.compare_bt_ppo --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.compare_bt_ppo
+conda run -n pygame_lab python -m scripts.evaluation.compare_bt_ppo --human-demo
 ```
 
 M4.2 did not retrain PPO or change BT topology/parameters, reward, Observation,
@@ -467,9 +624,9 @@ False-to-True transitions, while each actually executed contact step would add
 M4.1b commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41b_control10hz.zip --log-label m41b_phase_a_training --init-model-path models/ppo_m40.zip --action-repeat 6
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_phase_a_200k --render-mode none --action-repeat 6
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_phase_a_human --render-mode human --action-repeat 6
+conda run -n pygame_lab python -m scripts.training.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41b_control10hz.zip --log-label m41b_phase_a_training --init-model-path models/ppo_m40.zip --action-repeat 6
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_phase_a_200k --render-mode none --action-repeat 6
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_phase_a_human --render-mode human --action-repeat 6
 ```
 
 This controlled result supports excessive 60 Hz policy-decision frequency as
@@ -515,10 +672,10 @@ in a later, explicitly scoped milestone.
 M4.1a reproduction/evaluation commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --init-model-path models/ppo_m40.zip
-conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 500000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --resume
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_500k --render-mode none
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_human --render-mode human
+conda run -n pygame_lab python -m scripts.training.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 200000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --init-model-path models/ppo_m40.zip
+conda run -n pygame_lab python -m scripts.training.train_ppo --scenario ppo_simple_obstacle --seed 44 --target-timesteps 500000 --model-path models/ppo_m41a_simple_obstacle.zip --log-label m41a_training --resume
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41a_500k --render-mode none
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_human --render-mode human
 ```
 
 Milestone 4.1 experiment executed (acceptance not met):
@@ -532,7 +689,7 @@ Milestone 4.1 experiment executed (acceptance not met):
   collision semantics, Perception, Renderer, and Behavior Tree remain unchanged
 * Ground-truth target distance is used only as privileged reward shaping during
   training; it is not exposed through Observation or info
-* `scripts.train_ppo` and `scripts.eval_ppo` accept scenario, model/checkpoint, log, and
+* `scripts.training.train_ppo` and `scripts.evaluation.eval_ppo` accept scenario, model/checkpoint, log, and
   evaluation-label inputs while preserving their M4.0 defaults
 * obstacle fine-tuning initialized from `models/ppo_m40.zip`, saved to
   `models/ppo_m41_obstacles.zip`, evaluated at 200k, then resumed without
@@ -549,9 +706,9 @@ baseline passed before the explicitly requested M4.2 comparison was started.
 M4.1 reproduction commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 200000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --init-model-path models/ppo_m40.zip
-conda run -n pygame_lab python -m scripts.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 500000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --resume
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --evaluation-seed-start 2001 --tag m41_500k
+conda run -n pygame_lab python -m scripts.training.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 200000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --init-model-path models/ppo_m40.zip
+conda run -n pygame_lab python -m scripts.training.train_ppo --scenario ppo_simple_obstacles --seed 43 --target-timesteps 500000 --model-path models/ppo_m41_obstacles.zip --log-label m41_training --resume
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --evaluation-seed-start 2001 --tag m41_500k
 ```
 
 Milestone 4.0 completed (current):
@@ -564,10 +721,10 @@ Milestone 4.0 completed (current):
   step cost, collision-event penalty, and Target completion bonus
 * Ground Truth progress is used only by reward calculation and is not exposed in
   Observation
-* `scripts.train_ppo` trains one default `PPO("MlpPolicy")` environment, records SB3
+* `scripts.training.train_ppo` trains one default `PPO("MlpPolicy")` environment, records SB3
   Monitor episode evidence, and can resume the same checkpoint to a cumulative
   timestep target
-* `scripts.eval_ppo` compares Random and deterministic PPO with the same fixed seeds
+* `scripts.evaluation.eval_ppo` compares Random and deterministic PPO with the same fixed seeds
   and reuses `ExperimentRecorder` metric definitions
 * the 50k evaluation checkpoint is retained; training resumed from that model to
   100k because the 50k deterministic policy did not yet outperform Random
@@ -577,10 +734,10 @@ Milestone 4.0 completed (current):
 Minimal commands:
 
 ```text
-conda run -n pygame_lab python -m scripts.train_ppo --target-timesteps 50000
-conda run -n pygame_lab python -m scripts.train_ppo --target-timesteps 100000 --resume
-conda run -n pygame_lab python -m scripts.eval_ppo --controller both --tag 100k
-conda run -n pygame_lab python -m scripts.eval_ppo --controller ppo --episodes 1 --render-mode human
+conda run -n pygame_lab python -m scripts.training.train_ppo --target-timesteps 50000
+conda run -n pygame_lab python -m scripts.training.train_ppo --target-timesteps 100000 --resume
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --controller both --tag 100k
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --controller ppo --episodes 1 --render-mode human
 ```
 
 Milestone 3.1 completed (current):
@@ -617,7 +774,7 @@ Milestone 3 completed (current):
 * `render_mode=None` creates no window or Renderer; `human` reuses the same
   read-only Pygame Renderer
 * Gym episodes can reuse `ExperimentRecorder`; BT-only metrics remain empty
-* `scripts.gym_demo` provides a random-Action headless smoke test
+* `scripts.demo.gym_demo` provides a random-Action headless smoke test
 
 Gym registration, vectorized/multiprocess training, reward tuning, obstacle RL,
 BT+RL hybrid control, and other M4.1 work remain intentionally deferred.

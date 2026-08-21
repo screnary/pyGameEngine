@@ -10,11 +10,11 @@ from stable_baselines3 import PPO
 
 from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.gym.env import AgentGymEnv
-from autonomy_lab.scene_config import SCENES
+from autonomy_lab.scenarios.config import SCENES
 
 
-# 脚本迁入 ``scripts/`` 后，默认模型/实验路径仍指向原项目根目录。
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# 脚本迁入 ``scripts/evaluation/`` 后，默认路径仍指向项目根目录。
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m40.zip"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "experiments" / "m40_eval"
 DEFAULT_SCENARIO = "rl_sanity"

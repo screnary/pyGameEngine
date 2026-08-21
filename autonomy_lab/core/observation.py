@@ -20,50 +20,58 @@ def build_navigation_observation(world: Environment) -> np.ndarray:
     该函数只读取 World；Gym Adapter 与 Frozen PPO BT Node 共用它，避免两条
     推理路径的归一化或字段顺序随代码演进产生偏差。
     """
-    agent = world.agent
     snapshot = world.perception.snapshot
-    speed = float(np.clip(agent.speed / agent.max_speed, -1.0, 1.0))
+    agent_state = snapshot.agent
+    goal = snapshot.goal
+    hazard = snapshot.hazard
+    boundary = snapshot.boundary
+    speed = float(
+        np.clip(agent_state.speed / world.agent.max_speed, -1.0, 1.0)
+    )
 
-    target_visible = float(snapshot.target_visible)
-    if snapshot.target_visible:
+    target_visible = float(goal.visible)
+    if goal.visible:
         world_diagonal = math.hypot(*world.world_size)
         target_distance = float(
-            np.clip((snapshot.target_distance or 0.0) / world_diagonal, 0.0, 1.0)
+            np.clip((goal.distance or 0.0) / world_diagonal, 0.0, 1.0)
         )
         target_bearing = float(
-            np.clip((snapshot.target_bearing or 0.0) / math.pi, -1.0, 1.0)
+            np.clip((goal.bearing or 0.0) / math.pi, -1.0, 1.0)
         )
     else:
         # 即使 BT ground_truth 模式在 Snapshot 内保留目标信息，PPO 也不读取。
         target_distance = 0.0
         target_bearing = 0.0
 
-    obstacle = snapshot.nearest_obstacle
-    obstacle_available = float(obstacle is not None)
-    if obstacle is None:
+    nearest_hazard = hazard.nearest_hazard
+    obstacle_available = float(nearest_hazard is not None)
+    if nearest_hazard is None:
         obstacle_distance = 0.0
         obstacle_bearing = 0.0
     else:
         obstacle_distance = float(
-            np.clip(obstacle.distance / world.perception.sensor_range, 0.0, 1.0)
+            np.clip(
+                nearest_hazard.clearance / world.perception.sensor_range,
+                0.0,
+                1.0,
+            )
         )
         obstacle_bearing = float(
-            np.clip(obstacle.bearing / math.pi, -1.0, 1.0)
+            np.clip(nearest_hazard.bearing / math.pi, -1.0, 1.0)
         )
 
     width, height = world.world_size
-    radius = agent.radius
     clearances = (
-        np.clip((agent.position.x - radius) / width, 0.0, 1.0),
-        np.clip((width - radius - agent.position.x) / width, 0.0, 1.0),
-        np.clip((agent.position.y - radius) / height, 0.0, 1.0),
-        np.clip((height - radius - agent.position.y) / height, 0.0, 1.0),
+        np.clip(boundary.left / width, 0.0, 1.0),
+        np.clip(boundary.right / width, 0.0, 1.0),
+        np.clip(boundary.top / height, 0.0, 1.0),
+        np.clip(boundary.bottom / height, 0.0, 1.0),
     )
     return np.asarray(
         [
             speed,
-            math.sin(agent.heading),
-            math.cos(agent.heading),
+            math.sin(agent_state.heading),
+            math.cos(agent_state.heading),
             target_visible,
             target_distance,
             target_bearing,

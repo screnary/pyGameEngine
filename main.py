@@ -9,10 +9,10 @@ import argparse
 import pygame
 
 from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.rendering.renderer import PygameRenderer
-from autonomy_lab.scene_config import DEFAULT_SCENARIO, SCENES, get_scene
+from autonomy_lab.scenarios.config import DEFAULT_SCENARIO, SCENES, get_scene
 
 
 SIMULATION_DT = 1.0 / 60.0

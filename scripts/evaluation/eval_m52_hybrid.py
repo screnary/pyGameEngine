@@ -15,7 +15,7 @@ from autonomy_lab.experiment.runners import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m52_hybrid_trained.zip"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments" / "comparisons" / "m52"
 DEFAULT_SEED = 7001

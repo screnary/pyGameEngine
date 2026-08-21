@@ -1,8 +1,16 @@
-"""定义 Agent 的运动状态以及由所有 Controller 共享的归一化动力学。"""
+"""Core 层：定义 Agent 状态以及由所有 Controller 共享的归一化动力学。"""
 
 import math
+from typing import TypedDict
 
 import pygame
+
+
+class AgentCommand(TypedDict):
+    """Manual、BT、Gym 与未来 Research Method 共用的归一化控制表达。"""
+
+    turn: float
+    throttle: float
 
 
 class Agent:

@@ -7,10 +7,10 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 
-from ..environment import Environment
+from ..core.environment import Environment
 from ..experiment.recorder import ExperimentRecorder
-from ..observation import OBSERVATION_SIZE, build_navigation_observation
-from ..scene_config import DEFAULT_SCENARIO, SCENES, get_scene
+from ..core.observation import OBSERVATION_SIZE, build_navigation_observation
+from ..scenarios.config import DEFAULT_SCENARIO, SCENES, get_scene
 
 
 SIMULATION_DT = 1.0 / 60.0

@@ -20,7 +20,7 @@ from autonomy_lab.experiment.runners import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FROZEN_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m41b_control10hz.zip"
 DEFAULT_TRAINED_MODEL_PATH = (
     PROJECT_ROOT / "models" / "ppo_m52_hybrid_trained_200k.zip"

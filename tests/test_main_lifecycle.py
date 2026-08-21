@@ -16,7 +16,7 @@ import pygame
 
 import main as app
 from autonomy_lab.experiment.recorder import ExperimentRecorder
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.scenarios.config import get_scene
 
 
 class SuccessWindowLifecycleTests(unittest.TestCase):

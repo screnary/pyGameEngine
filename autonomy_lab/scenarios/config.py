@@ -1,4 +1,4 @@
-"""集中保存可编辑的场景预设和当前阶段所需的轻量配置。"""
+"""Scenarios 层：保存固定场景预设和当前阶段所需的轻量配置。"""
 
 from copy import deepcopy
 
@@ -257,6 +257,48 @@ SCENES = {
         },
     },
 }
+
+
+# R0.1 的两个固定场景只用于保护现有感知与 BT Safety Action。它们不参与
+# PPO 训练，也不改变 M4/M5 的正式场景 geometry。
+_r01_narrow_passage = deepcopy(SCENES["ppo_simple_obstacles"])
+_r01_narrow_passage.update(
+    {
+        "name": "R0.1 Narrow Passage Regression",
+        "seed": 101,
+        "test_only": True,
+        "regression_group": "r01_navigation",
+    }
+)
+_r01_narrow_passage["agent"]["position"] = (100, 300)
+_r01_narrow_passage["target"]["position"] = (750, 300)
+_r01_narrow_passage["obstacles"] = [
+    (350, 80, 80, 208),
+    (350, 312, 80, 208),
+]
+_r01_narrow_passage["sensor"]["los_enabled"] = True
+
+_r01_boundary_obstacle = deepcopy(SCENES["ppo_simple_obstacle"])
+_r01_boundary_obstacle.update(
+    {
+        "name": "R0.1 Boundary Obstacle Regression",
+        "seed": 102,
+        "test_only": True,
+        "regression_group": "r01_navigation",
+        "target_information_mode": "ground_truth",
+    }
+)
+_r01_boundary_obstacle["agent"]["position"] = (810, 300)
+_r01_boundary_obstacle["agent"]["heading_degrees"] = 180.0
+_r01_boundary_obstacle["target"]["position"] = (100, 300)
+_r01_boundary_obstacle["obstacles"] = [(670, 200, 120, 200)]
+
+SCENES.update(
+    {
+        "r01_narrow_passage": _r01_narrow_passage,
+        "r01_boundary_obstacle": _r01_boundary_obstacle,
+    }
+)
 
 
 def _make_m43_variant(

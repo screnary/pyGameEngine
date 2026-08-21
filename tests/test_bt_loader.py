@@ -18,9 +18,9 @@ from autonomy_lab.bt.loader import (
 )
 from autonomy_lab.bt.registry import BEHAVIOR_REGISTRY
 from autonomy_lab.bt.visualizer import BTVisualizer
-from autonomy_lab.environment import Environment
-from autonomy_lab.perception import AgentPerception
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.core.environment import Environment
+from autonomy_lab.perception.pygame_perception import AgentPerception
+from autonomy_lab.scenarios.config import get_scene
 
 
 def make_context() -> BehaviorBuildContext:
@@ -77,10 +77,11 @@ class BTLoaderTests(unittest.TestCase):
         self.assertEqual(loaded.config_id, "default_bt")
         self.assertEqual(loaded.name, "Default Agent Behavior")
         self.assertEqual(loaded.root.name, "Priority Selector")
-        self.assertEqual(len(list(loaded.root.iterate())), 16)
+        self.assertEqual(len(list(loaded.root.iterate())), 19)
         self.assertEqual(
             [child.name for child in loaded.root.children],
             [
+                "Boundary Recovery",
                 "Obstacle Avoidance",
                 "Target Gap Navigation",
                 "Target Pursuit",
@@ -89,6 +90,7 @@ class BTLoaderTests(unittest.TestCase):
             ],
         )
         self.assertFalse(loaded.root.memory)
+        self.assertFalse(loaded.nodes_by_name["Boundary Recovery"].memory)
         self.assertTrue(loaded.nodes_by_name["Obstacle Avoidance"].memory)
         self.assertTrue(loaded.nodes_by_name["Target Gap Navigation"].memory)
         self.assertFalse(loaded.nodes_by_name["Target Pursuit"].memory)
@@ -130,7 +132,7 @@ class BTLoaderTests(unittest.TestCase):
 
         visualizer.sync(pygame.Rect(0, 0, 480, 500))
 
-        self.assertEqual(loaded.root.children[0].name, "Target Gap Navigation")
+        self.assertEqual(loaded.root.children[0].name, "Obstacle Avoidance")
         root_connections = [
             child_id
             for parent_id, child_id in visualizer.connections
@@ -155,7 +157,7 @@ class BTLoaderTests(unittest.TestCase):
         visualizer = BTVisualizer(loaded.root, snapshot)
         visualizer.sync(pygame.Rect(0, 0, 480, 500))
 
-        self.assertEqual(len(list(loaded.root.iterate())), 17)
+        self.assertEqual(len(list(loaded.root.iterate())), 20)
         self.assertIn("Backup Search", loaded.nodes_by_name)
         self.assertIn(loaded.nodes_by_name["Backup Search"].id, visualizer.visual_nodes)
 

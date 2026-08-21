@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.eval_m51_hybrid import (
+from scripts.evaluation.eval_m51_hybrid import (
     HUMAN_SCENARIOS,
     M51_SCENARIO_GROUPS,
     build_m51_summary,

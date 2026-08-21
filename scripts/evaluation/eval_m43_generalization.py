@@ -18,7 +18,7 @@ from autonomy_lab.experiment.runners import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m41b_control10hz.zip"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments" / "comparisons"
 DEFAULT_SEED = 5001

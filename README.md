@@ -16,15 +16,20 @@ project_root/
 ├── main.py                         # BT / manual Pygame 主入口
 │
 ├── autonomy_lab/
-│   ├── agent.py                    # Agent 状态与运动更新
-│   ├── environment.py              # 唯一 World / Simulation Core
-│   ├── perception.py               # Target 与 Obstacle 感知快照
-│   ├── observation.py              # Gym / Frozen PPO 共用的 13-D 编码
-│   ├── scene_config.py             # Scenario 与实验参数
-│   │
+│   ├── core/
+│   │   ├── agent.py                # Agent 状态与运动更新
+│   │   ├── environment.py          # 唯一 World / Simulation Core
+│   │   └── observation.py          # Gym / Frozen PPO 共用的 13-D 编码
+│   ├── perception/
+│   │   ├── semantic_perception.py  # Goal / Hazard / Boundary 公共语义层
+│   │   └── pygame_perception.py    # 当前 Pygame 感知 Provider
+│   ├── scenarios/
+│   │   ├── config.py               # 固定 Scenario 与实验参数
+│   │   └── scenario_distribution.py # 可复现 Research Scenario Families
 │   ├── bt/
 │   │   ├── behaviors.py            # 可执行 Condition / Action 节点
 │   │   ├── context.py              # BT 节点共享依赖
+│   │   ├── parameters.py           # Research BT 运行时 Condition 参数
 │   │   ├── registry.py             # Behavior 名称到 Python class 的映射
 │   │   ├── loader.py               # JSON Definition → py_trees Runtime
 │   │   ├── controller.py           # BT tick 与 Command 输出
@@ -43,19 +48,24 @@ project_root/
 │       └── runners.py              # BT / PPO 公共 Episode execution
 │
 ├── scripts/
-│   ├── gym_demo.py                 # headless Gymnasium smoke test
-│   ├── train_ppo.py                # PPO training / fine-tuning 入口
-│   ├── eval_ppo.py                 # Random / PPO evaluation 与 rendering
-│   ├── compare_bt_ppo.py           # M4.2 frozen BT vs PPO comparison
-│   ├── eval_m43_generalization.py  # M4.3 geometry generalization evaluation
-│   ├── eval_m51_hybrid.py          # M5.1 BT / PPO / Hybrid evaluation
-│   ├── train_hybrid_ppo.py         # M5.2 Hybrid Lab 接线 smoke 入口
-│   ├── eval_m52_hybrid.py          # Frozen / external-policy Hybrid evaluation
-│   └── eval_m53_final.py           # M5 四 Controller 最终统一评价
+│   ├── demo/
+│   │   ├── gym_demo.py             # headless Gymnasium smoke test
+│   │   └── demo_scenario_distribution.py # sampled scene human demo
+│   ├── training/
+│   │   ├── train_ppo.py            # PPO training / fine-tuning
+│   │   └── train_hybrid_ppo.py     # Hybrid-context training smoke
+│   └── evaluation/
+│       ├── eval_ppo.py             # Random / PPO evaluation
+│       ├── compare_bt_ppo.py       # frozen BT vs PPO comparison
+│       ├── eval_m43_generalization.py
+│       ├── eval_m51_hybrid.py
+│       ├── eval_m52_hybrid.py
+│       └── eval_m53_final.py
 │
 ├── bt_configs/
 │   ├── default.json                # 原手工 BT baseline
-│   └── hybrid_ppo.json             # M5.0 Hybrid BT + Frozen PPO
+│   ├── hybrid_ppo.json             # M5.0 Hybrid BT + Frozen PPO
+│   └── condition_research.json      # R0.3 Parameterized Research BT
 ├── assets/                         # 可选本地 PNG 图标
 ├── models/                         # 本地 PPO checkpoints
 ├── experiments/                    # 运行日志、trajectory 与统计结果
@@ -97,6 +107,7 @@ conda run -n pygame_lab python main.py
 ```powershell
 conda run -n pygame_lab python main.py --controller bt --bt default
 conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenario ppo_simple_obstacle
+conda run -n pygame_lab python main.py --controller bt --bt condition_research --scenario rl_sanity
 conda run -n pygame_lab python main.py --controller manual
 conda run -n pygame_lab python main.py --scenario simple
 conda run -n pygame_lab python main.py --scenario obstacle_course
@@ -110,24 +121,254 @@ Manual Controller 操作：
 - `R`：重置当前 Scenario；
 - 关闭窗口：结束运行。
 
-在 [scene_config.py](autonomy_lab/scene_config.py) 中新增或调整 Scenario。
+在 [config.py](autonomy_lab/scenarios/config.py) 中新增或调整 Scenario。
 每个 preset 包含 World 尺寸、seed、Agent、Target、Obstacle、显示参数和少量
 Behavior Tree 实验参数。
+
+## R0.1 Perception & Navigation Regression
+
+R0.1 将两类几何语义明确分开：Target sensing 继续只回答目标是否处于
+range/FOV/光学 LOS 内；Agent 是否能通过则由 footprint-aware obstacle/free-space
+clearance 判断。`AgentPerception` 额外提供 12 个全方向 sector clearances 给 BT
+Safety Actions 使用，但冻结的 PPO 13-D Observation 字段、顺序与数值语义不变。
+
+默认 BT 现在先执行 `Boundary Risk? → Safe Boundary Recovery`。Boundary Recovery
+与 Obstacle Avoidance 通过同一个轻量 safe-steering 评分同时考虑 obstacle clearance、
+boundary clearance 和期望方向，避免两条安全分支把 Agent 互相推回风险区。
+
+两个固定 Regression Scenario 可直接观察：
+
+```powershell
+conda run -n pygame_lab python main.py --controller bt --bt default --scenario r01_narrow_passage
+conda run -n pygame_lab python main.py --controller bt --bt default --scenario r01_boundary_obstacle
+```
+
+- `r01_narrow_passage`：24 px 光学狭缝小于约 32 px Agent 直径；Target 可感知，
+  但中心方向被 free-space sensing 判定为不可通。
+- `r01_boundary_obstacle`：Agent 从 Boundary 与 Obstacle 的夹区启动，用于观察
+  Boundary Recovery 绕开内侧障碍并脱离风险区。
+
+这两个 Scenario 仅用于 R0.1 回归，不参与 PPO 训练。
+
+## R0.2 Semantic Perception
+
+`AgentPerception` 现在只执行一套几何计算，并以 `SemanticPerception` 作为主要
+输出：
+
+```text
+Environment Ground Truth
+        ↓
+AgentPerception
+        ↓
+SemanticPerception
+├── AgentState
+├── GoalPerception
+├── HazardPerception
+└── BoundaryPerception
+        ↓
+Legacy 13-D PPO / current BT / future research adapters
+```
+
+- Goal 只表达 sensed/visible/available、距离和方位，不表达路径能否通过。
+- Hazard 包含局部障碍 clearance、12 方向 sector ranges 和可通行 gaps。
+- Boundary 提供 Agent 圆形碰撞体到四条 World 边界的像素净空。
+- 所有 semantic objects 都是 frozen 纯数据，不携带 `pygame.Rect`、World 或
+  Surface。
+- `target_visible`、`nearest_obstacle` 等历史字段仅是同一快照上的只读属性映射，
+  不会触发第二次 perception computation。
+
+冻结的 M4/M5 13-D Observation 仍保持原 shape、顺序、归一化、`float32` 和
+不可见对象中性值。历史 Scenario、checkpoint、CSV 与 BT JSON 命名继续保留
+Target/Obstacle，以免破坏已有实验资产。
+
+## R0.3 Parameterized Research BT
+
+`condition_research.json` 是独立于 legacy BT 和 Hybrid BT 的固定研究树：
+
+```text
+Priority Selector
+├── Boundary Recovery: BoundaryRisk(theta_boundary) → SafeBoundaryRecovery
+├── Hazard Avoidance:  HazardRisk(theta_hazard) → AvoidHazard
+├── Goal Reached:      GoalReached(theta_goal) → Stop
+└── Move To Goal
+```
+
+Topology 和 handcrafted Actions 保持固定，只有三个连续 Condition threshold 可在
+运行时调整。默认值分别为 `hazard=90 px`、`boundary=40 px`、`goal=30 px`；
+允许设置任意有限非负数值。Condition 每次 tick 都读取同一个
+`ConditionParameters`，不会把构建时数值缓存到节点中：
+
+```python
+from autonomy_lab.bt.controller import BehaviorTreeController
+from autonomy_lab.bt.parameters import ConditionParameters
+
+parameters = ConditionParameters(hazard_threshold=60.0)
+controller = BehaviorTreeController(
+    world,
+    bt_config="condition_research",
+    condition_parameters=parameters,
+)
+
+controller.tick(1.0 / 60.0)
+parameters.hazard_threshold = 100.0
+controller.tick(1.0 / 60.0)  # 此 tick 立即使用 100 px
+```
+
+三个 Research Condition 只读取当前 `SemanticPerception.goal`、`.hazard` 和
+`.boundary`。Visualizer feedback 会显示观测距离/净空及当前 `theta`，便于比较
+同一 observation 在不同 threshold 下的分支选择。本阶段不包含 Condition-RL、
+参数平滑、hysteresis 或动态 topology。
+
+## R0.4 Scenario Distribution
+
+R0.4 在固定 M4/M5/R0 regression scenarios 之外新增独立研究采样路径：
+
+```python
+from autonomy_lab.environment import Environment
+from autonomy_lab.scenario_distribution import ScenarioDistribution
+
+scene = ScenarioDistribution("dynamic_hazard").sample(seed=42)
+world = Environment(scene)
+```
+
+当前 family：
+
+- `static_random`：随机 Agent pose、Goal 与两个静态 Hazard；
+- `dense_hazard`：五个更紧凑、但保留外侧通路的静态 Hazard；
+- `dynamic_hazard`：增加一个恒速、边界反射的移动 Hazard；
+- `noisy_perception`：只扰动 Semantic Hazard range measurement；
+- `context_shift`：按 simulation time 执行 low-risk → high-risk → recovery；
+- `narrow_passage` / `boundary_hazard`：R0.1 固定 regression geometry alias。
+
+`sample(seed)` 使用局部 RNG；相同 `family + seed` 会还原相同起点、Goal、
+Hazard geometry、动态初态、噪声序列和 schedule。静态与动态 Hazard 都进入
+Environment 的同一个 `obstacles` Rect 列表，共用 collision、LOS、sector、gap
+和 rendering 逻辑。
+
+轻量诊断可直接读取：
+
+```python
+world.scenario_metadata
+world.dynamic_hazard_states
+world.current_noise_level
+world.current_context_phase
+```
+
+本阶段没有 Condition-RL、curriculum、procedural maze 或通用事件编排。
+
+直接打开 R0.4 可视化窗口：
+
+```powershell
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 42
+```
+
+替换 `--family` 即可观察其他场景族，例如：
+
+```powershell
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family static_random --seed 42
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dense_hazard --seed 42
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family noisy_perception --seed 42
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family context_shift --seed 42
+```
+
+窗口使用 `condition_research` BT，状态栏显示 Family、Hazard 数量、Noise 和
+Context Phase。按 `R` 重放同一 seed，关闭窗口退出。
+
+手工设置 R0.3 Condition threshold：
+
+```powershell
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 5001 --hazard-threshold 110 --boundary-threshold 45 --goal-threshold 30
+```
+
+## R0.5 Stabilized Research Interface
+
+R0.5 冻结两条用途不同、但共享 World 和 perception computation 的数据流：
+
+```text
+Legacy M4/M5
+Environment → AgentPerception → frozen 13-D Observation → PPO / Hybrid
+
+Research R0/M6+
+ScenarioDistribution → Environment → SemanticPerceptionProvider
+→ SemanticPerception → Parameterized Research BT
+→ AgentCommand → Environment.step()
+```
+
+`SemanticPerceptionProvider` 的最小 contract 是每个 control tick 调用一次
+`observe()`，随后所有 Method/BT leaf 只读同一份 `snapshot`。当前
+`AgentPerception` 是 Pygame provider；未来 simulator 只需实现相同 contract，
+不需要复制 Parameterized Conditions 或 handcrafted Actions。
+
+跨 simulator 的 Core semantics：
+
+- `AgentState`：speed、heading、radius；
+- `GoalPerception`：availability、distance、bearing；
+- `HazardPerception`：nearest/visible Hazard 与 sector ranges。
+
+Optional semantics 包括 `BoundaryPerception` 和 Pygame-derived traversable gaps，
+分别使用 `available`、`gaps_available` 明确表示缺失，不伪造可用观测。动态 Hazard
+和 noise/context metadata 仍属于 simulator/Scenario diagnostics；其当前测量结果
+通过普通 Hazard semantics 提供给 Research Method。
+
+`ConditionParameters` 的稳定接口：
+
+```python
+parameters.get_values()
+parameters.set_values(hazard_threshold=100.0)
+parameters.reset_defaults()
+parameters.get_bounds()
+```
+
+本阶段仅冻结接口，没有 Safety-Gym dependency、SafetyGym adapter、Condition-RL
+或 PPO → delta-theta。
+
+## R0.6 Generic Parameter Interface
+
+`autonomy_lab.bt.parameters` 现在用同一套薄接口描述和保存连续参数：
+
+```python
+from autonomy_lab.bt.parameters import ParameterSpec, ParameterStore
+
+store = ParameterStore([
+    ParameterSpec(
+        name="avoid_turn_gain",
+        value=1.0,
+        default=1.0,
+        min_value=0.25,
+        max_value=2.0,
+    )
+])
+
+store.set("avoid_turn_gain", 1.4)
+gain = store.get("avoid_turn_gain")
+store.reset("avoid_turn_gain")
+```
+
+通用 API 为 `get(name)`、`set(name, value)`、`reset(name)`、`reset_all()`、
+`bounds(name)` 和 `spec(name)`。越界、非数值与非有限 current value 会显式报错，
+不会被静默 clip。`spec()` 返回副本，外部不能绕过 `set()` 修改 Store 内部状态。
+
+现有 `ConditionParameters` 是该 Store 的 Research BT 兼容入口，继续保留
+`hazard_threshold`、`boundary_threshold`、`goal_threshold` 属性以及 R0.5 的批量
+方法。三个 Condition 每次 tick 按参数 key 调用 `get()`；节点不知道参数来自
+Manual、未来 PPO 或 CMA-ES。Store 本身也不区分 Condition 与 Action 参数，但
+R0.6 尚未迁移或新增任何 Action 参数，也没有实现 optimizer。
 
 ## Script Entry Points
 
 非交互式入口位于 `scripts/`：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.gym_demo
-conda run -n pygame_lab python -m scripts.train_ppo --help
-conda run -n pygame_lab python -m scripts.eval_ppo --help
-conda run -n pygame_lab python -m scripts.compare_bt_ppo --help
-conda run -n pygame_lab python -m scripts.eval_m43_generalization --help
-conda run -n pygame_lab python -m scripts.eval_m51_hybrid --help
-conda run -n pygame_lab python -m scripts.train_hybrid_ppo --help
-conda run -n pygame_lab python -m scripts.eval_m52_hybrid --help
-conda run -n pygame_lab python -m scripts.eval_m53_final --help
+conda run -n pygame_lab python -m scripts.demo.gym_demo
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --help
+conda run -n pygame_lab python -m scripts.training.train_ppo --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --help
+conda run -n pygame_lab python -m scripts.evaluation.compare_bt_ppo --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_m43_generalization --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid --help
+conda run -n pygame_lab python -m scripts.training.train_hybrid_ppo --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_m52_hybrid --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final --help
 ```
 
 ## Simulation and Rendering Boundary
@@ -240,7 +481,7 @@ models/ppo_m40.zip
 Human evaluation：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario rl_sanity --model-path models/ppo_m40.zip --controller ppo --episodes 1 --evaluation-seed-start 1001 --tag m40_manual_view --render-mode human
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario rl_sanity --model-path models/ppo_m40.zip --controller ppo --episodes 1 --evaluation-seed-start 1001 --tag m40_manual_view --render-mode human
 ```
 
 ### M4.1 — Hard Narrow-gap Baseline
@@ -251,7 +492,7 @@ success rate 均为 0%，因此该模型被保留为失败证据，不作为成�
 查看典型失败轨迹：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller ppo --episodes 1 --evaluation-seed-start 2001 --tag m41_manual_view --render-mode human
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacles --model-path models/ppo_m41_obstacles.zip --controller ppo --episodes 1 --evaluation-seed-start 2001 --tag m41_manual_view --render-mode human
 ```
 
 该 deterministic PPO 接近障碍后进入局部控制循环，并在 20 秒 Simulation
@@ -266,7 +507,7 @@ M4.1a 将任务降级为 `ppo_simple_obstacle`，但保持 60 Hz PPO decision fr
 查看 M4.1a：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_manual_view --render-mode human
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41a_simple_obstacle.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41a_manual_view --render-mode human
 ```
 
 Evaluation 会在 `results.csv` 旁生成 `diagnostics.json`，记录 Target distance、
@@ -292,13 +533,13 @@ PPO success rate    = 100%
 查看成功的 M4.1b 模型：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_manual_view --render-mode human --action-repeat 6
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller ppo --episodes 1 --evaluation-seed-start 3001 --tag m41b_manual_view --render-mode human --action-repeat 6
 ```
 
 复现 Random/PPO fixed-seed comparison：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_manual_check --render-mode none --action-repeat 6
+conda run -n pygame_lab python -m scripts.evaluation.eval_ppo --scenario ppo_simple_obstacle --model-path models/ppo_m41b_control10hz.zip --controller both --episodes 10 --evaluation-seed-start 3001 --tag m41b_manual_check --render-mode none --action-repeat 6
 ```
 
 Adapter 默认值仍为 `action_repeat=1`、`contact_penalty_per_step=0.0`，保证
@@ -306,7 +547,7 @@ M4.0/M4.1 的旧调用语义不变。
 
 ## M4.2 — BT vs PPO Baseline
 
-`scripts.compare_bt_ppo` 在相同 Environment、Scenario、seed 和 World 初态下
+`scripts.evaluation.compare_bt_ppo` 在相同 Environment、Scenario、seed 和 World 初态下
 比较 frozen default Behavior Tree 与 `models/ppo_m41b_control10hz.zip`：
 
 ```text
@@ -321,13 +562,13 @@ algorithm ablation。
 运行 batch comparison：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.compare_bt_ppo
+conda run -n pygame_lab python -m scripts.evaluation.compare_bt_ppo
 ```
 
 运行独立 human demos：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.compare_bt_ppo --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.compare_bt_ppo --human-demo
 ```
 
 冻结结果：
@@ -357,7 +598,7 @@ experiments/comparisons/human_demos/<scenario>/<controller>/
 
 ## M4.3 — Zero-shot Geometry Generalization
 
-`scripts.eval_m43_generalization` 复用公共 Episode runners，在不重新训练或调参
+`scripts.evaluation.eval_m43_generalization` 复用公共 Episode runners，在不重新训练或调参
 的前提下评估 frozen BT 与 PPO：
 
 - `seen`：`rl_sanity`、`ppo_simple_obstacle`；
@@ -368,13 +609,13 @@ experiments/comparisons/human_demos/<scenario>/<controller>/
 运行 headless evaluation：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m43_generalization
+conda run -n pygame_lab python -m scripts.evaluation.eval_m43_generalization
 ```
 
 运行 8 个独立 human observation Episodes：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m43_generalization --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m43_generalization --human-demo
 ```
 
 固定布局仅运行 seed 5001；统计单位是 Scenario，不是随机重复 Episode。
@@ -461,8 +702,8 @@ Pure PPO 与 Hybrid BT + PPO。World 和 BT supervision 为 60 Hz；PPO 仅在�
 运行 batch evaluation：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m51_hybrid
-python -m scripts.eval_m51_hybrid --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid
+python -m scripts.evaluation.eval_m51_hybrid --human-demo
 
 # Pure BT
 conda run -n pygame_lab python main.py --controller bt --bt default --scenario ppo_simple_obstacle
@@ -477,7 +718,7 @@ conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenari
 抢占和 Search 切换；不会写入或污染 batch 结果）：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m51_hybrid --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid --human-demo
 ```
 
 本次冻结评估结果：
@@ -532,12 +773,12 @@ save/load 和 logging 接线。需要长实验时必须显式提供 `--target-ti
 
 ```powershell
 # 推荐的当前用法：短 smoke test
-conda run -n pygame_lab python -m scripts.train_hybrid_ppo `
+conda run -n pygame_lab python -m scripts.training.train_hybrid_ppo `
   --model-path models/ppo_m52_smoke.zip `
   --log-label m52_hybrid_smoke
 
 # 读取已有 checkpoint 做结构化评估；不触发训练
-conda run -n pygame_lab python -m scripts.eval_m52_hybrid `
+conda run -n pygame_lab python -m scripts.evaluation.eval_m52_hybrid `
   --model-path models/ppo_m52_hybrid_trained_200k.zip `
   --checkpoint-label 200k --human-demo
 ```
@@ -573,13 +814,13 @@ Hybrid-trained PPO  = ppo_m52_hybrid_trained_200k.zip
 运行最终 headless evaluation：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m53_final
+conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final
 ```
 
 运行两个代表场景 × 四 Controller 的独立 human demo：
 
 ```powershell
-conda run -n pygame_lab python -m scripts.eval_m53_final --human-demo
+conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final --human-demo
 ```
 
 固定 seed 5001 下的最终结果如下。均值按组内 **all episodes** 计算，timeout
@@ -671,10 +912,10 @@ Visualizer 会同步变化。
 
 ```text
 main.py
-  → autonomy_lab/scene_config.py
-  → autonomy_lab/environment.py / agent.py
-  → autonomy_lab/perception.py
-  → autonomy_lab/observation.py
+  → autonomy_lab/scenarios/config.py
+  → autonomy_lab/core/environment.py / agent.py
+  → autonomy_lab/perception/pygame_perception.py
+  → autonomy_lab/core/observation.py
   → autonomy_lab/bt/context.py / behaviors.py
   → autonomy_lab/bt/registry.py / loader.py / controller.py
   → autonomy_lab/rendering/renderer.py / bt/visualizer.py

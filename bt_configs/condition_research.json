@@ -1,0 +1,71 @@
+{
+  "format": "bt-lab/v1",
+  "id": "condition_research_bt",
+  "name": "Parameterized Condition Research BT",
+  "root": {
+    "type": "selector",
+    "name": "Priority Selector",
+    "memory": false,
+    "children": [
+      {
+        "type": "sequence",
+        "name": "Boundary Recovery",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Boundary Risk?",
+            "behavior": "ResearchBoundaryRisk"
+          },
+          {
+            "type": "action",
+            "name": "Safe Boundary Recovery",
+            "behavior": "SafeBoundaryRecovery"
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Hazard Avoidance",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Hazard Risk?",
+            "behavior": "HazardRisk"
+          },
+          {
+            "type": "action",
+            "name": "Avoid Hazard",
+            "behavior": "AvoidObstacle",
+            "params": {
+              "condition": "Hazard Risk?"
+            }
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Goal Reached",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Goal Reached?",
+            "behavior": "GoalReached"
+          },
+          {
+            "type": "action",
+            "name": "Stop",
+            "behavior": "Stop"
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "name": "Move To Goal",
+        "behavior": "MoveToTarget"
+      }
+    ]
+  }
+}

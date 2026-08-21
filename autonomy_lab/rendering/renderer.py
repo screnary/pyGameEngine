@@ -9,7 +9,7 @@ from .assets import load_optional_image
 
 if TYPE_CHECKING:
     from ..bt.controller import BehaviorTreeController
-    from ..environment import Environment
+    from ..core.environment import Environment
 
 
 class PygameRenderer:
@@ -152,8 +152,20 @@ class PygameRenderer:
         self, environment: "Environment", controller_name: str
     ) -> None:
         display = environment.scene_config["display"]
+        status_lines = self.status_lines(environment, controller_name)
+        if display["show_fps"]:
+            status_lines[0] += f"    FPS: {self.fps:5.1f}"
+        for index, text in enumerate(status_lines):
+            label = self.font.render(text, True, display["text_color"])
+            self.screen.blit(label, (16, 14 + index * 24))
+
+    @staticmethod
+    def status_lines(
+        environment: "Environment", controller_name: str
+    ) -> list[str]:
+        """构造只读状态文本；R0.4 World 额外显示当前 research context。"""
         heading_degrees = math.degrees(environment.agent.heading)
-        status_lines = [
+        lines = [
             (
                 f"Scenario: {environment.scene_name}    "
                 f"Controller: {controller_name.upper()}    Seed: {environment.seed}"
@@ -172,11 +184,16 @@ class PygameRenderer:
                 f"Speed: {environment.agent.speed:6.1f}"
             ),
         ]
-        if display["show_fps"]:
-            status_lines[0] += f"    FPS: {self.fps:5.1f}"
-        for index, text in enumerate(status_lines):
-            label = self.font.render(text, True, display["text_color"])
-            self.screen.blit(label, (16, 14 + index * 24))
+        metadata = environment.scenario_metadata
+        if metadata["family"] != "fixed":
+            lines.append(
+                f"Family: {metadata['family']}    "
+                f"Hazards: {metadata['hazard_count']}    "
+                f"Dynamic: {bool(metadata['dynamic_hazard_enabled'])}    "
+                f"Noise: {environment.current_noise_level:.1f} px    "
+                f"Phase: {environment.current_context_phase}"
+            )
+        return lines
 
     def _draw_fov(self, environment: "Environment") -> None:
         """绘制感知配置的扇形提示；真实感知仍由 AgentPerception 计算。"""

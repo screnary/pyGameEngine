@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import pygame
 import py_trees
 
-from ..environment import Environment
+from ..core.environment import Environment
 from .behaviors import (
     AvoidObstacle,
     MoveThroughGap,
@@ -17,6 +17,7 @@ from .behaviors import (
 )
 from .context import BehaviorBuildContext
 from .loader import load_behavior_tree
+from .parameters import ConditionParameters
 from .visualizer import BTVisualizer
 
 
@@ -47,8 +48,16 @@ class BehaviorTreeController:
         environment: Environment,
         bt_config: str = "default",
         external_ppo_control: bool = False,
+        condition_parameters: ConditionParameters | None = None,
     ) -> None:
         self.environment = environment
+        # Research BT 的三个 Condition 共用同一个可变对象。调用方持有该对象即可在
+        # 两次 tick 之间调整阈值；legacy BT 虽会收到它，但不会读取它。
+        self.condition_parameters = (
+            condition_parameters
+            if condition_parameters is not None
+            else ConditionParameters()
+        )
         # 所有 Action 写入同一个字典；main.py 在 tick 后读取最终值。
         self.command = {"turn": 0.0, "throttle": 0.0}
         config = environment.scene_config["behavior_tree"]
@@ -61,6 +70,7 @@ class BehaviorTreeController:
                 self.command,
                 config,
                 external_ppo_control=external_ppo_control,
+                condition_parameters=self.condition_parameters,
             ),
         )
         # Loader 返回真实 root 以及名称索引，后续代码不再依赖 JSON 原始字典。
@@ -150,7 +160,7 @@ class BehaviorTreeController:
                 if gap_commitment_active
                 else self._normal_avoidance_distances[threat]
             )
-        self.perception.update()
+        self.perception.observe()
         # 每帧先清空命令，防止被抢占 Action 的上一帧输出残留。
         self.command["turn"] = 0.0
         self.command["throttle"] = 0.0
@@ -201,7 +211,7 @@ class BehaviorTreeController:
         self.snapshot.visited = {}
         self.snapshot.previously_visited = {}
         self.snapshot.changed = False
-        self.perception.update()
+        self.perception.observe()
         for threat, normal_distance in self._normal_avoidance_distances.items():
             threat.avoidance_distance = normal_distance
         self.tick_count = 0

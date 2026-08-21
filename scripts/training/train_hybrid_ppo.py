@@ -8,11 +8,11 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
 from autonomy_lab.gym.hybrid_env import DEFAULT_TRAINING_SCENARIOS, HybridPPOEnv
-from autonomy_lab.scene_config import SCENES
-from scripts.train_ppo import additional_timesteps_to_target
+from autonomy_lab.scenarios.config import SCENES
+from scripts.training.train_ppo import additional_timesteps_to_target
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INIT_MODEL = PROJECT_ROOT / "models" / "ppo_m41b_control10hz.zip"
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ppo_m52_smoke.zip"
 

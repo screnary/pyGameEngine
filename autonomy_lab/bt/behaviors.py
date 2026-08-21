@@ -13,12 +13,71 @@ import numpy as np
 import pygame
 import py_trees
 
-from ..observation import build_navigation_observation
-from ..perception import PerceivedGap, PerceivedObstacle, normalise_angle
+from ..core.observation import build_navigation_observation
+from ..perception.pygame_perception import (
+    PerceivedGap,
+    PerceivedObstacle,
+    normalise_angle,
+)
 from .context import BehaviorBuildContext
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def choose_safe_steering(
+    snapshot: Any,
+    desired_bearing: float,
+    alignment_penalty: float = 90.0,
+    candidate_bearings: tuple[float, ...] | None = None,
+    turn_sign: float = 0.0,
+) -> float:
+    """从局部扇区中选择兼顾期望方向和安全净空的相对转向角。
+
+    ``desired_bearing`` 与扇区 bearing 都以 Agent 当前朝向为零点。评分以
+    footprint-aware clearance 为主，同时对偏离期望方向的候选项施加轻量惩罚。
+    这样 Boundary Recovery 不会只盯着场景中心撞上障碍，Obstacle Avoidance 也
+    不会只为远离障碍而立即转向危险边界。
+    """
+    sectors = snapshot.hazard.sector_ranges
+    if not sectors:
+        # 兼容尚未产生快照的极早期调用；正常运行时始终有 12 个扇区。
+        return normalise_angle(desired_bearing)
+
+    desired_bearing = normalise_angle(desired_bearing)
+    candidates = list(sectors)
+    if candidate_bearings:
+        # 将调用者给出的连续角映射到最近的离散扇区，避免重复射线计算。
+        candidates = [
+            min(
+                sectors,
+                key=lambda sector: abs(
+                    normalise_angle(sector.bearing - bearing)
+                ),
+            )
+            for bearing in candidate_bearings
+        ]
+    if turn_sign:
+        same_side = [
+            sector
+            for sector in candidates
+            if sector.bearing * turn_sign >= -1e-9
+        ]
+        if same_side:
+            candidates = same_side
+
+    def score(sector: Any) -> tuple[float, float, float]:
+        alignment_error = abs(
+            normalise_angle(sector.bearing - desired_bearing)
+        )
+        # alignment_penalty 的单位是 px：完全反向最多扣除该数值。
+        safety_score = sector.clearance - alignment_penalty * (
+            alignment_error / math.pi
+        )
+        # 后两项只用于分数相同时给出稳定且接近期望方向的选择。
+        return safety_score, -alignment_error, -abs(sector.bearing)
+
+    return max(candidates, key=score).bearing
 
 
 class AgentBehaviour(py_trees.behaviour.Behaviour):
@@ -105,6 +164,23 @@ class AgentAction(AgentBehaviour):
     visual_type = "action"
 
 
+class Stop(AgentAction):
+    """持续输出零控制量，让已到达 Goal 的 Research BT 保持停车。"""
+
+    def __init__(
+        self, context: BehaviorBuildContext, name: str, **params: object
+    ) -> None:
+        super().__init__(context, name, **params)
+        self.command = context.command
+
+    def update(self) -> py_trees.common.Status:
+        self.command["turn"] = 0.0
+        self.command["throttle"] = 0.0
+        self.feedback_message = "goal reached: hold"
+        # 保持 RUNNING，使 Visualizer 能持续显示 Stop 是当前活动 Action。
+        return py_trees.common.Status.RUNNING
+
+
 class TargetAvailable(AgentCondition):
     """判断 snapshot 是否提供了当前模式允许使用的目标信息。"""
 
@@ -178,6 +254,82 @@ class BoundaryRisk(AgentCondition):
             return py_trees.common.Status.FAILURE
         self.feedback_message = f"{side} boundary: {clearance:.0f} px"
         return py_trees.common.Status.SUCCESS
+
+
+class ResearchBoundaryRisk(AgentCondition):
+    """使用 Semantic Boundary 与运行时 theta_boundary 判断边界风险。"""
+
+    def update(self) -> py_trees.common.Status:
+        boundary = self.context.semantic.boundary
+        if not boundary.available:
+            self.feedback_message = "boundary unavailable"
+            return py_trees.common.Status.FAILURE
+        side, clearance = min(
+            (
+                ("left", boundary.left),
+                ("right", boundary.right),
+                ("top", boundary.top),
+                ("bottom", boundary.bottom),
+            ),
+            key=lambda item: item[1],
+        )
+        # 只按 key 读取 Store；节点不关心参数由 Manual、RL 或其他优化器修改。
+        threshold = self.context.condition_parameters.get("boundary_threshold")
+        self.feedback_message = (
+            f"{side}: clearance={clearance:.0f} px, theta={threshold:.0f} px"
+        )
+        return (
+            py_trees.common.Status.SUCCESS
+            if clearance < threshold
+            else py_trees.common.Status.FAILURE
+        )
+
+
+class HazardRisk(AgentCondition):
+    """使用最近 Semantic Hazard clearance 与当前 theta_hazard 判定风险。"""
+
+    def __init__(
+        self, context: BehaviorBuildContext, name: str, **params: object
+    ) -> None:
+        super().__init__(context, name, **params)
+        # AvoidObstacle 读取同一个 Condition 保存的本帧 Hazard，不访问 World geometry。
+        self.threat: PerceivedObstacle | None = None
+
+    def update(self) -> py_trees.common.Status:
+        hazard = self.context.semantic.hazard
+        self.threat = hazard.nearest_hazard
+        threshold = self.context.condition_parameters.get("hazard_threshold")
+        if self.threat is None:
+            self.feedback_message = f"d=none, theta={threshold:.0f} px"
+            return py_trees.common.Status.FAILURE
+        clearance = self.threat.clearance
+        self.feedback_message = (
+            f"d={clearance:.0f} px, theta={threshold:.0f} px"
+        )
+        return (
+            py_trees.common.Status.SUCCESS
+            if clearance < threshold
+            else py_trees.common.Status.FAILURE
+        )
+
+
+class GoalReached(AgentCondition):
+    """使用 Semantic Goal distance 与当前 theta_goal 判断是否到达。"""
+
+    def update(self) -> py_trees.common.Status:
+        goal = self.context.semantic.goal
+        threshold = self.context.condition_parameters.get("goal_threshold")
+        if not goal.available or goal.distance is None:
+            self.feedback_message = f"distance=none, theta={threshold:.0f} px"
+            return py_trees.common.Status.FAILURE
+        self.feedback_message = (
+            f"distance={goal.distance:.0f} px, theta={threshold:.0f} px"
+        )
+        return (
+            py_trees.common.Status.SUCCESS
+            if goal.distance < threshold
+            else py_trees.common.Status.FAILURE
+        )
 
 
 class ObstacleThreat(AgentCondition):
@@ -297,7 +449,9 @@ class AvoidObstacle(AgentAction):
     ) -> None:
         super().__init__(context, name, **params)
         # condition 是真实 ObstacleThreat 节点引用，不是复制的感知数据。
-        self.condition = self.condition_param("condition", ObstacleThreat)
+        self.condition = self.condition_param(
+            "condition", (ObstacleThreat, HazardRisk)
+        )
         self.command = context.command
         self.duration = self.number_param("duration", "avoid_duration")
         self.throttle = self.number_param("throttle", "avoid_throttle")
@@ -309,18 +463,32 @@ class AvoidObstacle(AgentAction):
         """每次分支重新进入时重置计时，并锁定本次避让方向。"""
         self.remaining = self.duration
         threat = self.condition.threat
-        # 正前方威胁固定向右避让；侧向威胁则转向其反方向。
+        # 先保留原行为的首选侧：正前方障碍默认向右，侧向障碍则向反侧绕行。
         if threat is None or abs(threat.bearing) <= math.radians(5.0):
-            self.turn_direction = 1.0
+            preferred_bearing = math.pi / 2.0
         else:
-            self.turn_direction = -1.0 if threat.bearing > 0.0 else 1.0
+            preferred_bearing = (
+                -math.pi / 2.0 if threat.bearing > 0.0 else math.pi / 2.0
+            )
+
+        # 再用同一份 obstacle + boundary 净空校验首选侧，避免把 Agent 推向边界。
+        safe_bearing = choose_safe_steering(
+            self.context.semantic,
+            preferred_bearing,
+            candidate_bearings=(-math.pi / 2.0, math.pi / 2.0),
+        )
+        self.turn_direction = max(
+            -1.0, min(1.0, safe_bearing / math.radians(45.0))
+        )
 
     def update(self) -> py_trees.common.Status:
         """输出本帧命令；计时结束时返回 SUCCESS 让 Sequence 完成。"""
         self.command["turn"] = self.turn_direction
         self.command["throttle"] = self.throttle
         self.remaining -= self.dt
-        self.feedback_message = f"avoid: turn={self.turn_direction:+.0f}"
+        self.feedback_message = (
+            f"safe steering: turn={self.turn_direction:+.2f}"
+        )
         return (
             py_trees.common.Status.SUCCESS
             if self.remaining <= 0.0
@@ -353,19 +521,64 @@ class SafeBoundaryRecovery(AgentAction):
             raise ValueError(
                 "parameter 'throttle' for SafeBoundaryRecovery must be in [0, 1]"
             )
+        self.turn_sign = 0.0
+
+    def initialise(self) -> None:
+        """新一次边界恢复重新选择绕障侧，运行期间保持该侧以避免左右振荡。"""
+        self.turn_sign = 0.0
 
     def update(self) -> py_trees.common.Status:
-        environment = self.context.perception.environment
-        agent = environment.agent
-        width, height = environment.world_size
-        offset = pygame.Vector2(width / 2.0, height / 2.0) - agent.position
-        desired_heading = math.atan2(offset.y, offset.x)
-        error = normalise_angle(desired_heading - agent.heading)
+        snapshot = self.context.semantic
+        boundary = snapshot.boundary
+        if not boundary.available:
+            self.command["turn"] = 0.0
+            self.command["throttle"] = 0.0
+            self.feedback_message = "boundary unavailable"
+            return py_trees.common.Status.FAILURE
+
+        # right-left 与 bottom-top 分别和“Agent → World 中心”同向；只需语义净空
+        # 与 Agent heading，无需知道 Pygame position 或 World 尺寸。
+        inward_x = boundary.right - boundary.left
+        inward_y = boundary.bottom - boundary.top
+        desired_heading = math.atan2(inward_y, inward_x)
+        desired_bearing = normalise_angle(
+            desired_heading - snapshot.agent.heading
+        )
+        sectors = snapshot.hazard.sector_ranges
+        desired_sector = (
+            min(
+                sectors,
+                key=lambda sector: abs(
+                    normalise_angle(sector.bearing - desired_bearing)
+                ),
+            )
+            if sectors
+            else None
+        )
+        # 期望的向内方向已有两个 Agent 直径净空时可直接恢复；否则锁定首次
+        # 选中的绕障侧，防止相邻扇区分数接近时每帧正负转向互换。
+        if (
+            desired_sector is None
+            or desired_sector.clearance >= snapshot.agent.radius * 4.0
+        ):
+            safe_bearing = desired_bearing
+            self.turn_sign = 0.0
+        else:
+            safe_bearing = choose_safe_steering(
+                snapshot,
+                desired_bearing,
+                turn_sign=self.turn_sign,
+            )
+            if self.turn_sign == 0.0 and abs(safe_bearing) > 1e-9:
+                self.turn_sign = math.copysign(1.0, safe_bearing)
         self.command["turn"] = max(
-            -1.0, min(1.0, error / math.radians(45.0))
+            -1.0, min(1.0, safe_bearing / math.radians(45.0))
         )
         self.command["throttle"] = self.throttle
-        self.feedback_message = f"recover inward: {math.degrees(error):+.0f} deg"
+        self.feedback_message = (
+            f"safe steering: {math.degrees(safe_bearing):+.0f} deg "
+            f"(inward {math.degrees(desired_bearing):+.0f} deg)"
+        )
         return py_trees.common.Status.RUNNING
 
     def terminate(self, new_status: py_trees.common.Status) -> None:
@@ -535,28 +748,29 @@ class MoveToTarget(AgentAction):
         )
 
     def update(self) -> py_trees.common.Status:
-        snapshot = self.context.perception.snapshot
+        snapshot = self.context.semantic
+        goal = snapshot.goal
         # Action 不直接读取 Environment.target，避免 perceived 模式泄漏真值。
-        if snapshot.target_distance is None or snapshot.target_bearing is None:
+        if not goal.available or goal.distance is None or goal.bearing is None:
             self.command["turn"] = 0.0
             self.command["throttle"] = 0.0
             self.feedback_message = "target unavailable"
             return py_trees.common.Status.FAILURE
 
         # 达到节点阈值后停车并返回 SUCCESS；main.py 另有 Episode 终止阈值。
-        if snapshot.target_distance <= self.reached_distance:
+        if goal.distance <= self.reached_distance:
             self.command["turn"] = 0.0
             self.command["throttle"] = 0.0
             self.feedback_message = "target reached"
             return py_trees.common.Status.SUCCESS
 
         # bearing 本身就是当前 heading 到目标方向的最短有符号转向误差。
-        error = snapshot.target_bearing
+        error = goal.bearing
         self.command["turn"] = max(-1.0, min(1.0, error / math.radians(45.0)))
         # 大角度偏航时降速，避免 Agent 一边高速前进一边原地大转弯。
         self.command["throttle"] = 1.0 if abs(error) < math.radians(60.0) else 0.3
         self.feedback_message = (
-            f"pursuit: {snapshot.target_distance:.0f} px, "
+            f"pursuit: {goal.distance:.0f} px, "
             f"{math.degrees(error):+.0f} deg"
         )
         return py_trees.common.Status.RUNNING

@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from scripts.eval_m52_hybrid import M52_SCENARIO_GROUPS, build_m52_summary
-from scripts.train_hybrid_ppo import parse_args
+from scripts.evaluation.eval_m52_hybrid import M52_SCENARIO_GROUPS, build_m52_summary
+from scripts.training.train_hybrid_ppo import parse_args
 
 
 class M52PipelineTests(unittest.TestCase):

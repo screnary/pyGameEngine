@@ -1,19 +1,30 @@
 """从 Environment 当前真值同步生成供 Behavior 使用的只读感知快照。
 
-这里的“感知”是科研原型中的确定性几何计算，不模拟噪声、延迟或跟踪器。
-是否允许目标真值由 ``target_information_mode`` 单独控制。
+这里的几何计算本身保持确定性。R0.4 research scene 可在最终 Hazard range
+measurement 上加入 seed-controlled noise；不模拟延迟或跟踪器。是否允许目标
+真值由 ``target_information_mode`` 单独控制。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 from typing import TYPE_CHECKING
 
 import pygame
 
+from .semantic_perception import (
+    AgentState,
+    BoundaryPerception,
+    GoalPerception,
+    HazardObservation,
+    HazardPerception,
+    NavigationGap,
+    SectorRange,
+    SemanticPerception,
+)
+
 if TYPE_CHECKING:
-    from .environment import Environment
+    from ..core.environment import Environment
 
 
 def normalise_angle(angle: float) -> float:
@@ -21,59 +32,19 @@ def normalise_angle(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
-@dataclass(frozen=True)
-class PerceivedObstacle:
-    """一个进入传感器 FOV 的障碍物相对观测。
-
-    ``distance`` 是 Agent 圆边缘到矩形最近点的像素距离；``bearing`` 是相对
-    当前 heading 的有符号弧度，正值表示屏幕坐标系中的顺时针方向。
-    """
-
-    rect: pygame.Rect
-    distance: float
-    bearing: float
-
-
-@dataclass(frozen=True)
-class PerceivedGap:
-    """由连续开放射线组成的局部缺口。
-
-    ``entry_position`` 已转换成世界坐标，Action 可以在转向过程中保持同一个
-    目标点，而不是每帧追逐不断变化的相对 bearing。
-    """
-
-    bearing: float
-    free_distance: float
-    angular_width: float
-    entry_position: tuple[float, float]
-
-
-@dataclass(frozen=True)
-class PerceptionSnapshot:
-    """一个 BT tick 内所有 Behavior 共享的不可变观测集合。
-
-    目标不可用时 distance/bearing 为 ``None``，防止 perceived 模式意外泄漏
-    Ground Truth。元组字段确保节点不会修改感知器产生的集合。
-    """
-
-    target_visible: bool
-    target_available: bool
-    target_source: str | None
-    target_distance: float | None
-    target_bearing: float | None
-    target_unavailable_reason: str
-    visible_obstacles: tuple[PerceivedObstacle, ...] = ()
-    nearest_obstacle: PerceivedObstacle | None = None
-    traversable_gaps: tuple[PerceivedGap, ...] = ()
-    best_exploration_gap: PerceivedGap | None = None
-    target_path_blocked: bool = False
-    best_target_gap: PerceivedGap | None = None
+# Historical import names remain aliases only; the real output model is the
+# simulator-neutral SemanticPerception defined in semantic_perception.py.
+PerceivedObstacle = HazardObservation
+PerceivedGap = NavigationGap
+SectorClearance = SectorRange
+PerceptionSnapshot = SemanticPerception
 
 
 class AgentPerception:
     """根据 Agent 位姿和场景几何生成最新 snapshot，不维护长期世界模型。"""
 
     VALID_TARGET_MODES = {"perceived", "ground_truth"}
+    SECTOR_COUNT = 12
 
     def __init__(self, environment: Environment) -> None:
         self.environment = environment
@@ -118,7 +89,11 @@ class AgentPerception:
         # 创建后立即生成首份 snapshot，Behavior 在第一次 tick 前也可安全读取。
         self.snapshot = self.update()
 
-    def update(self) -> PerceptionSnapshot:
+    def observe(self) -> SemanticPerception:
+        """实现统一 Provider contract，并保留 ``update()`` 作为 legacy API。"""
+        return self.update()
+
+    def update(self) -> SemanticPerception:
         """从当前 Environment 状态生成并保存一份全新的同步快照。"""
         agent = self.environment.agent
         # offset 是世界坐标向量；bearing 再减 heading 后变为 Agent 局部方位。
@@ -142,6 +117,7 @@ class AgentPerception:
 
         # 障碍物与缺口始终来自局部传感器几何，不因目标模式而改变。
         visible_obstacles = self._visible_obstacles()
+        sector_clearances = self._sector_clearances()
         traversable_gaps = self._traversable_gaps()
         # 未知目标时优先选择更深且更接近正前方的局部开口。
         best_exploration_gap = (
@@ -177,20 +153,43 @@ class AgentPerception:
             else None
         )
 
-        # 一次性组装快照，保证同一 BT tick 中不同节点看到完全一致的数据。
-        self.snapshot = PerceptionSnapshot(
-            target_visible=target_visible,
-            target_available=target_available,
-            target_source=source,
-            target_distance=distance if target_available else None,
-            target_bearing=bearing if target_available else None,
-            target_unavailable_reason=reason,
-            visible_obstacles=visible_obstacles,
-            nearest_obstacle=visible_obstacles[0] if visible_obstacles else None,
-            traversable_gaps=traversable_gaps,
-            best_exploration_gap=best_exploration_gap,
-            target_path_blocked=target_path_blocked,
-            best_target_gap=best_target_gap,
+        width, height = self.environment.world_size
+        radius = agent.radius
+        nearest_hazard = visible_obstacles[0] if visible_obstacles else None
+        # 一次性组装唯一语义快照；legacy 属性只映射这些值，不再次计算几何。
+        self.snapshot = SemanticPerception(
+            agent=AgentState(
+                speed=float(agent.speed),
+                heading=float(agent.heading),
+                radius=float(agent.radius),
+            ),
+            goal=GoalPerception(
+                sensed=target_visible,
+                visible=target_visible,
+                available=target_available,
+                source=source,
+                distance=distance if target_available else None,
+                bearing=bearing if target_available else None,
+                unavailable_reason=reason,
+            ),
+            hazard=HazardPerception(
+                visible_hazards=visible_obstacles,
+                nearest_hazard=nearest_hazard,
+                sector_ranges=sector_clearances,
+                traversable_gaps=traversable_gaps,
+                best_exploration_gap=best_exploration_gap,
+                goal_direction_blocked=target_path_blocked,
+                best_goal_gap=best_target_gap,
+                sector_available=True,
+                gaps_available=True,
+            ),
+            boundary=BoundaryPerception(
+                left=float(agent.position.x - radius),
+                right=float(width - radius - agent.position.x),
+                top=float(agent.position.y - radius),
+                bottom=float(height - radius - agent.position.y),
+                available=True,
+            ),
         )
         return self.snapshot
 
@@ -211,10 +210,10 @@ class AgentPerception:
         line = ((start.x, start.y), (end.x, end.y))
         return not any(obstacle.clipline(*line) for obstacle in self.environment.obstacles)
 
-    def _visible_obstacles(self) -> tuple[PerceivedObstacle, ...]:
+    def _visible_obstacles(self) -> tuple[HazardObservation, ...]:
         """收集 FOV 内障碍物，并按 Agent 圆边缘距离从近到远排序。"""
         agent = self.environment.agent
-        visible: list[PerceivedObstacle] = []
+        visible: list[HazardObservation] = []
         for obstacle in self.environment.obstacles:
             # 把 Agent 圆心坐标分别夹到 Rect 范围，得到矩形上的最近点。
             closest = pygame.Vector2(
@@ -234,16 +233,45 @@ class AgentPerception:
             )
             if abs(bearing) > self.half_fov:
                 continue
-            # center_distance 再减 Agent radius，得到圆形碰撞体边缘净距离。
+            # center_distance 再减 Agent radius，得到圆形碰撞体边缘真值净距离。
+            # R0.4 noise 只扰动交给 Controller 的 Hazard range measurement；Rect、
+            # collision、sector/gap truth 和 Goal sensing 均不读取该随机值。
+            true_clearance = max(0.0, center_distance - agent.radius)
+            noise_level = self.environment.current_noise_level
+            measured_clearance = true_clearance
+            if noise_level > 0.0:
+                measured_clearance = max(
+                    0.0,
+                    true_clearance
+                    + self.environment.perception_random.gauss(0.0, noise_level),
+                )
             visible.append(
-                PerceivedObstacle(
-                    rect=obstacle,
-                    distance=max(0.0, center_distance - agent.radius),
+                HazardObservation(
+                    clearance=measured_clearance,
                     bearing=bearing,
                 )
             )
         visible.sort(key=lambda item: item.distance)
         return tuple(visible)
+
+    def _sector_clearances(self) -> tuple[SectorRange, ...]:
+        """以 30° 间隔采样全方向实际碰撞 clearance。
+
+        Sector 使用 Agent 真实半径而不叠加 gap safety margin。这样 Agent 已处于
+        safety margin 内时，远离障碍的逃逸方向仍有正 clearance；用于缺口判定的
+        `_traversable_gaps` 则继续使用更保守的额外 margin。
+        """
+        step = 2.0 * math.pi / self.SECTOR_COUNT
+        return tuple(
+            SectorRange(
+                bearing=-math.pi + index * step,
+                clearance=self._ray_free_distance(
+                    -math.pi + index * step,
+                    safety_margin=0.0,
+                ),
+            )
+            for index in range(self.SECTOR_COUNT)
+        )
 
     def _traversable_gaps(self) -> tuple[PerceivedGap, ...]:
         """在整个 FOV 均匀采样射线，并把连续开放射线合并为缺口。"""
@@ -311,7 +339,11 @@ class AgentPerception:
         ) * (free_distance * self.gap_entry_ratio)
         return float(entry.x), float(entry.y)
 
-    def _ray_free_distance(self, relative_bearing: float) -> float:
+    def _ray_free_distance(
+        self,
+        relative_bearing: float,
+        safety_margin: float | None = None,
+    ) -> float:
         """测量圆形 Agent 沿一条相对射线可安全行进的像素距离。"""
         agent = self.environment.agent
         start = agent.position
@@ -321,7 +353,8 @@ class AgentPerception:
         )
         end = start + direction * self.sensor_range
         # 将边界内缩、障碍物外扩同一 clearance，相当于让圆形 Agent 走点射线。
-        clearance = math.ceil(agent.radius + self.gap_safety_margin)
+        margin = self.gap_safety_margin if safety_margin is None else safety_margin
+        clearance = math.ceil(agent.radius + margin)
         # 安全世界是原世界向内收缩 clearance 后的矩形。
         safe_world = pygame.Rect(
             clearance,

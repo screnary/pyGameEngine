@@ -12,10 +12,10 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 from autonomy_lab.experiment.recorder import ExperimentRecorder
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.gym.env import AgentGymEnv
-from autonomy_lab.observation import build_navigation_observation
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.core.observation import build_navigation_observation
+from autonomy_lab.scenarios.config import get_scene
 
 
 class AgentGymEnvCoreTests(unittest.TestCase):

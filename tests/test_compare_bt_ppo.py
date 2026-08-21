@@ -12,9 +12,9 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 from stable_baselines3 import PPO
 
-from autonomy_lab.environment import Environment
+from autonomy_lab.core.environment import Environment
 from autonomy_lab.gym.env import AgentGymEnv
-from autonomy_lab.scene_config import get_scene
+from autonomy_lab.scenarios.config import get_scene
 from autonomy_lab.experiment.runners import (
     BT_DECISION_FREQUENCY,
     PPO_ACTION_REPEAT,
@@ -24,7 +24,7 @@ from autonomy_lab.experiment.runners import (
     run_bt_episode,
     run_ppo_episode,
 )
-from scripts.compare_bt_ppo import (
+from scripts.evaluation.compare_bt_ppo import (
     summarize_rows,
     write_comparison_outputs,
 )

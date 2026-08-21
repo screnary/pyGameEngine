@@ -1,4 +1,4 @@
-"""验证 M4.4 脚本收拢、公共 runner 位置和核心依赖方向。"""
+"""验证职责分组后的 package、脚本入口和 Core 依赖方向。"""
 
 import ast
 import importlib
@@ -8,18 +8,36 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_NAMES = (
-    "gym_demo",
-    "train_ppo",
-    "eval_ppo",
-    "compare_bt_ppo",
-    "eval_m43_generalization",
-    "eval_m51_hybrid",
-    "train_hybrid_ppo",
-    "eval_m52_hybrid",
-    "eval_m53_final",
+PACKAGE_MODULES = (
+    "autonomy_lab.core.agent",
+    "autonomy_lab.core.environment",
+    "autonomy_lab.core.observation",
+    "autonomy_lab.perception.semantic_perception",
+    "autonomy_lab.perception.pygame_perception",
+    "autonomy_lab.scenarios.config",
+    "autonomy_lab.scenarios.scenario_distribution",
 )
-CORE_MODULES = ("agent.py", "environment.py", "perception.py", "scene_config.py")
+SCRIPT_MODULES = (
+    "scripts.demo.gym_demo",
+    "scripts.demo.demo_scenario_distribution",
+    "scripts.training.train_ppo",
+    "scripts.training.train_hybrid_ppo",
+    "scripts.evaluation.eval_ppo",
+    "scripts.evaluation.compare_bt_ppo",
+    "scripts.evaluation.eval_m43_generalization",
+    "scripts.evaluation.eval_m51_hybrid",
+    "scripts.evaluation.eval_m52_hybrid",
+    "scripts.evaluation.eval_m53_final",
+)
+OLD_PACKAGE_MODULES = (
+    "autonomy_lab.agent",
+    "autonomy_lab.environment",
+    "autonomy_lab.observation",
+    "autonomy_lab.semantic_perception",
+    "autonomy_lab.scene_config",
+    "autonomy_lab.scenario_distribution",
+)
+CORE_FILES = ("agent.py", "environment.py", "observation.py")
 FORBIDDEN_CORE_PREFIXES = (
     "autonomy_lab.bt",
     "autonomy_lab.gym",
@@ -41,12 +59,41 @@ def imported_modules(path: Path) -> set[str]:
     return modules
 
 
+def module_exists(module: str) -> bool:
+    """父 package 尚不存在时也返回 False，便于明确报告缺失的新路径。"""
+    try:
+        return importlib.util.find_spec(module) is not None
+    except ModuleNotFoundError:
+        return False
+
+
 class ProjectStructureTests(unittest.TestCase):
-    def test_auxiliary_entry_points_live_only_in_scripts_package(self):
-        self.assertTrue((PROJECT_ROOT / "scripts" / "__init__.py").is_file())
-        for name in SCRIPT_NAMES:
-            self.assertTrue((PROJECT_ROOT / "scripts" / f"{name}.py").is_file())
-            self.assertFalse((PROJECT_ROOT / f"{name}.py").exists())
+    def test_responsibility_grouped_package_modules_are_importable(self):
+        """缺少任一新职责模块会使调用者继续依赖旧的扁平 package。"""
+        missing = [
+            module
+            for module in PACKAGE_MODULES
+            if not module_exists(module)
+        ]
+        self.assertEqual(missing, [])
+
+    def test_flat_legacy_modules_are_removed_without_compatibility_layer(self):
+        """残留旧 module 会形成两套 import 路径并掩盖未完成的迁移。"""
+        existing = [
+            module
+            for module in OLD_PACKAGE_MODULES
+            if module_exists(module)
+        ]
+        self.assertEqual(existing, [])
+
+    def test_entry_points_are_grouped_and_importable(self):
+        """移动脚本却遗漏 package 或内部 import 会让 python -m 入口失效。"""
+        missing = [
+            module
+            for module in SCRIPT_MODULES
+            if not module_exists(module)
+        ]
+        self.assertEqual(missing, [])
 
     def test_common_episode_runners_are_importable_from_experiment_package(self):
         module_name = "autonomy_lab.experiment.runners"
@@ -68,31 +115,25 @@ class ProjectStructureTests(unittest.TestCase):
         ):
             self.assertTrue(hasattr(runners, public_name), public_name)
 
-    def test_m43_script_depends_on_common_runner_not_m42_script(self):
-        path = PROJECT_ROOT / "scripts" / "eval_m43_generalization.py"
-        self.assertTrue(path.is_file())
-        if not path.is_file():
-            return
+    def test_evaluations_depend_on_common_runners_not_older_scripts(self):
+        for filename in ("eval_m43_generalization.py", "eval_m51_hybrid.py"):
+            path = PROJECT_ROOT / "scripts" / "evaluation" / filename
+            self.assertTrue(path.is_file(), filename)
+            if not path.is_file():
+                continue
 
-        imports = imported_modules(path)
-        self.assertIn("autonomy_lab.experiment.runners", imports)
-        self.assertNotIn("scripts.compare_bt_ppo", imports)
-        self.assertNotIn("compare_bt_ppo", imports)
-
-    def test_m51_script_depends_on_common_runners_not_older_eval_scripts(self):
-        path = PROJECT_ROOT / "scripts" / "eval_m51_hybrid.py"
-        self.assertTrue(path.is_file())
-        if not path.is_file():
-            return
-
-        imports = imported_modules(path)
-        self.assertIn("autonomy_lab.experiment.runners", imports)
-        self.assertNotIn("scripts.compare_bt_ppo", imports)
-        self.assertNotIn("scripts.eval_m43_generalization", imports)
+            imports = imported_modules(path)
+            self.assertIn("autonomy_lab.experiment.runners", imports)
+            self.assertNotIn("scripts.evaluation.compare_bt_ppo", imports)
+            self.assertNotIn("scripts.evaluation.eval_m43_generalization", imports)
 
     def test_core_does_not_import_outer_layers(self):
-        for filename in CORE_MODULES:
-            imports = imported_modules(PROJECT_ROOT / "autonomy_lab" / filename)
+        for filename in CORE_FILES:
+            path = PROJECT_ROOT / "autonomy_lab" / "core" / filename
+            self.assertTrue(path.is_file(), filename)
+            if not path.is_file():
+                continue
+            imports = imported_modules(path)
             forbidden = {
                 module
                 for module in imports
