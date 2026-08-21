@@ -14,6 +14,10 @@ SCRIPT_NAMES = (
     "eval_ppo",
     "compare_bt_ppo",
     "eval_m43_generalization",
+    "eval_m51_hybrid",
+    "train_hybrid_ppo",
+    "eval_m52_hybrid",
+    "eval_m53_final",
 )
 CORE_MODULES = ("agent.py", "environment.py", "perception.py", "scene_config.py")
 FORBIDDEN_CORE_PREFIXES = (
@@ -60,6 +64,7 @@ class ProjectStructureTests(unittest.TestCase):
             "assert_initial_states_match",
             "run_bt_episode",
             "run_ppo_episode",
+            "run_hybrid_policy_episode",
         ):
             self.assertTrue(hasattr(runners, public_name), public_name)
 
@@ -73,6 +78,17 @@ class ProjectStructureTests(unittest.TestCase):
         self.assertIn("autonomy_lab.experiment.runners", imports)
         self.assertNotIn("scripts.compare_bt_ppo", imports)
         self.assertNotIn("compare_bt_ppo", imports)
+
+    def test_m51_script_depends_on_common_runners_not_older_eval_scripts(self):
+        path = PROJECT_ROOT / "scripts" / "eval_m51_hybrid.py"
+        self.assertTrue(path.is_file())
+        if not path.is_file():
+            return
+
+        imports = imported_modules(path)
+        self.assertIn("autonomy_lab.experiment.runners", imports)
+        self.assertNotIn("scripts.compare_bt_ppo", imports)
+        self.assertNotIn("scripts.eval_m43_generalization", imports)
 
     def test_core_does_not_import_outer_layers(self):
         for filename in CORE_MODULES:

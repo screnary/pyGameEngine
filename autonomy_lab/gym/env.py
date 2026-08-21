@@ -9,11 +9,11 @@ import numpy as np
 
 from ..environment import Environment
 from ..experiment.recorder import ExperimentRecorder
+from ..observation import OBSERVATION_SIZE, build_navigation_observation
 from ..scene_config import DEFAULT_SCENARIO, SCENES, get_scene
 
 
 SIMULATION_DT = 1.0 / 60.0
-OBSERVATION_SIZE = 13
 
 
 class AgentGymEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -260,70 +260,8 @@ class AgentGymEnv(gym.Env[np.ndarray, np.ndarray]):
         return reward, components
 
     def _get_observation(self) -> np.ndarray:
-        """把 action 后最终 Agent/Perception 状态编码为固定 13 维向量。
-
-        字段顺序为 speed、heading sin/cos、target visible/distance/bearing、
-        obstacle available/distance/bearing、left/right/top/bottom clearance。
-        不可见对象的 distance/bearing 使用 0；相邻 available 位负责消歧。
-        """
-        agent = self.world.agent
-        snapshot = self.world.perception.snapshot
-        speed = float(np.clip(agent.speed / agent.max_speed, -1.0, 1.0))
-
-        target_visible = float(snapshot.target_visible)
-        if snapshot.target_visible:
-            world_diagonal = math.hypot(*self.world.world_size)
-            target_distance = float(
-                np.clip((snapshot.target_distance or 0.0) / world_diagonal, 0.0, 1.0)
-            )
-            target_bearing = float(
-                np.clip((snapshot.target_bearing or 0.0) / math.pi, -1.0, 1.0)
-            )
-        else:
-            # 即使 ground_truth 模式在 Snapshot 内保留目标信息，Gym 也不读取。
-            target_distance = 0.0
-            target_bearing = 0.0
-
-        obstacle = snapshot.nearest_obstacle
-        obstacle_available = float(obstacle is not None)
-        if obstacle is None:
-            obstacle_distance = 0.0
-            obstacle_bearing = 0.0
-        else:
-            obstacle_distance = float(
-                np.clip(
-                    obstacle.distance / self.world.perception.sensor_range,
-                    0.0,
-                    1.0,
-                )
-            )
-            obstacle_bearing = float(
-                np.clip(obstacle.bearing / math.pi, -1.0, 1.0)
-            )
-
-        width, height = self.world.world_size
-        radius = agent.radius
-        clearances = (
-            np.clip((agent.position.x - radius) / width, 0.0, 1.0),
-            np.clip((width - radius - agent.position.x) / width, 0.0, 1.0),
-            np.clip((agent.position.y - radius) / height, 0.0, 1.0),
-            np.clip((height - radius - agent.position.y) / height, 0.0, 1.0),
-        )
-        return np.asarray(
-            [
-                speed,
-                math.sin(agent.heading),
-                math.cos(agent.heading),
-                target_visible,
-                target_distance,
-                target_bearing,
-                obstacle_available,
-                obstacle_distance,
-                obstacle_bearing,
-                *clearances,
-            ],
-            dtype=np.float32,
-        )
+        """委托共享编码器，确保 Gym 与 Hybrid BT 的 PPO 输入完全相同。"""
+        return build_navigation_observation(self.world)
 
     def _get_info(self) -> dict[str, Any]:
         """返回评价所需的少量真值，不把完整 World 塞入 info。"""

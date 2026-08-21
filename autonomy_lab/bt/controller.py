@@ -6,7 +6,15 @@ import pygame
 import py_trees
 
 from ..environment import Environment
-from .behaviors import AvoidObstacle, MoveThroughGap, MoveToTarget, ObstacleThreat
+from .behaviors import (
+    AvoidObstacle,
+    MoveThroughGap,
+    MoveToTarget,
+    ObstacleThreat,
+    PPONavigate,
+    SafeBoundaryRecovery,
+    SearchTarget,
+)
 from .context import BehaviorBuildContext
 from .loader import load_behavior_tree
 from .visualizer import BTVisualizer
@@ -34,7 +42,12 @@ class BehaviorTreeController:
     返回 turn/throttle。Controller 不直接修改 Agent 的位置或朝向。
     """
 
-    def __init__(self, environment: Environment, bt_config: str = "default") -> None:
+    def __init__(
+        self,
+        environment: Environment,
+        bt_config: str = "default",
+        external_ppo_control: bool = False,
+    ) -> None:
         self.environment = environment
         # 所有 Action 写入同一个字典；main.py 在 tick 后读取最终值。
         self.command = {"turn": 0.0, "throttle": 0.0}
@@ -43,7 +56,12 @@ class BehaviorTreeController:
         self.perception = environment.perception
         loaded = load_behavior_tree(
             bt_config,
-            BehaviorBuildContext(self.perception, self.command, config),
+            BehaviorBuildContext(
+                self.perception,
+                self.command,
+                config,
+                external_ppo_control=external_ppo_control,
+            ),
         )
         # Loader 返回真实 root 以及名称索引，后续代码不再依赖 JSON 原始字典。
         self.bt_config_id = loaded.config_id
@@ -64,6 +82,18 @@ class BehaviorTreeController:
         self._target_actions = [
             node for node in self._runtime_nodes if isinstance(node, MoveToTarget)
         ]
+        self._ppo_actions = [
+            node for node in self._runtime_nodes if isinstance(node, PPONavigate)
+        ]
+        self._boundary_actions = [
+            node
+            for node in self._runtime_nodes
+            if isinstance(node, SafeBoundaryRecovery)
+        ]
+        self._search_actions = [
+            node for node in self._runtime_nodes if isinstance(node, SearchTarget)
+        ]
+        self.controller_id = "hybrid_bt_ppo" if self._ppo_actions else "bt-v1"
         # visual_type 来自 AgentAction/AgentCondition 基类，可用于通用状态摘要。
         self._action_nodes = [
             node
@@ -92,6 +122,14 @@ class BehaviorTreeController:
         self.tree.visitors.append(self.snapshot)
         self.visualizer = BTVisualizer(self.tree.root, self.snapshot)
         self.tick_count = 0
+        # M5.1 旁路诊断只观察 Runtime 状态，不参与任何节点选择或命令计算。
+        self.ppo_active_time = 0.0
+        self.boundary_recovery_activation_count = 0
+        self.search_activation_count = 0
+        self.ppo_preemption_count = 0
+        self._previous_ppo_active = False
+        self._previous_boundary_active = False
+        self._previous_search_active = False
 
     def tick(self, dt: float) -> tuple[float, float]:
         """推进一次感知和 BT，返回归一化 ``(turn, throttle)``。
@@ -119,9 +157,35 @@ class BehaviorTreeController:
         for action in self._avoid_actions:
             # py_trees 不传入 dt，定时 Action 由 Controller 在 tick 前注入本帧时长。
             action.dt = dt
+        for action in self._ppo_actions:
+            # PPO 只用仿真 dt 累计 10 Hz 决策间隔；它不会 sleep 或推进 World。
+            action.dt = dt
         # tick 会按 Selector/Sequence 语义调用节点 initialise/update/terminate。
         self.tree.tick()
         self.tick_count += 1
+        ppo_active = any(
+            action.status == py_trees.common.Status.RUNNING
+            for action in self._ppo_actions
+        )
+        boundary_active = any(
+            action.status == py_trees.common.Status.RUNNING
+            for action in self._boundary_actions
+        )
+        search_active = any(
+            action.status == py_trees.common.Status.RUNNING
+            for action in self._search_actions
+        )
+        if ppo_active:
+            self.ppo_active_time += dt
+        if boundary_active and not self._previous_boundary_active:
+            self.boundary_recovery_activation_count += 1
+        if search_active and not self._previous_search_active:
+            self.search_activation_count += 1
+        if self._previous_ppo_active and boundary_active:
+            self.ppo_preemption_count += 1
+        self._previous_ppo_active = ppo_active
+        self._previous_boundary_active = boundary_active
+        self._previous_search_active = search_active
         return self.command["turn"], self.command["throttle"]
 
     def reset(self) -> None:
@@ -141,6 +205,51 @@ class BehaviorTreeController:
         for threat, normal_distance in self._normal_avoidance_distances.items():
             threat.avoidance_distance = normal_distance
         self.tick_count = 0
+        self.ppo_active_time = 0.0
+        self.boundary_recovery_activation_count = 0
+        self.search_activation_count = 0
+        self.ppo_preemption_count = 0
+        self._previous_ppo_active = False
+        self._previous_boundary_active = False
+        self._previous_search_active = False
+        for action in self._ppo_actions:
+            action.decision_count = 0
+
+    @property
+    def ppo_decision_count(self) -> int:
+        """返回当前 Episode 内全部 Frozen PPO Action 的推理次数。"""
+        return sum(action.decision_count for action in self._ppo_actions)
+
+    @property
+    def ppo_active(self) -> bool:
+        """PPO Navigate 是否是当前 RUNNING Action。"""
+        return any(
+            action.status == py_trees.common.Status.RUNNING
+            for action in self._ppo_actions
+        )
+
+    @property
+    def ppo_action_required(self) -> bool:
+        """外部训练 Policy 是否应在当前 World state 产生下一次决策。"""
+        return self.ppo_active and any(
+            action.action_required for action in self._ppo_actions
+        )
+
+    def set_ppo_action(self, action: object) -> None:
+        """把 Action 交给当前获得 BT 控制权的唯一 PPONavigate 节点。"""
+        active_nodes = [
+            node
+            for node in self._ppo_actions
+            if node.status == py_trees.common.Status.RUNNING
+        ]
+        if len(active_nodes) != 1 or not active_nodes[0].action_required:
+            raise RuntimeError("PPO action is not requested by the Behavior Tree")
+        active_nodes[0].provide_external_action(action)
+
+    def clear_ppo_action(self) -> None:
+        """结束当前 PPO decision interval，等待下一次外部 Action。"""
+        for action in self._ppo_actions:
+            action.clear_external_action()
 
     @property
     def active_behavior(self) -> str:

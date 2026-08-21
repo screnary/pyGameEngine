@@ -100,6 +100,8 @@ autonomy_lab/
 ├── bt/
 ├── rendering/
 ├── gym/
+│   ├── env.py
+│   └── hybrid_env.py
 └── experiment/
     ├── recorder.py
     └── runners.py
@@ -108,7 +110,11 @@ scripts/
 ├── train_ppo.py
 ├── eval_ppo.py
 ├── compare_bt_ppo.py
-└── eval_m43_generalization.py
+├── eval_m43_generalization.py
+├── eval_m51_hybrid.py
+├── train_hybrid_ppo.py
+├── eval_m52_hybrid.py
+└── eval_m53_final.py
 ```
 
 Do not create modules until they are actually needed.
@@ -135,14 +141,177 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+Milestone 5.3 Hybrid BT-RL Final Evaluation & Milestone Closure completed:
+
+* `scripts/eval_m53_final.py` reuses the common Episode runners to evaluate
+  BT, Pure PPO, Frozen Hybrid, and the preserved 200,704-step Hybrid-trained
+  PPO on the seven fixed M5.1 scenarios; it does not call PPO training
+* seed 5001 remains a fixed-pipeline identifier. The statistical unit is one
+  fixed scenario, not repeated stochastic trials or randomized geometry
+* BT and Pure PPO passed 2/2 seen, 4/4 mild-unseen, and 1/1 hard scenes;
+  Frozen Hybrid and Hybrid-trained PPO passed 2/2, 3/4, and 0/1 respectively
+* on all mild-unseen episodes, BT averaged 6.050 s / 781.3 px / 0 collisions,
+  Pure PPO 3.613 s / 788.9 px / 1.00, Frozen Hybrid 7.625 s / 669.2 px /
+  1.25, and Hybrid-trained PPO 7.617 s / 668.7 px / 1.50
+* Reverse Detour remained the Hybrid failure: Frozen used one Boundary
+  activation/preemption, 17 PPO decisions, 0.084 active ratio, five collisions,
+  and timed out; trained used one activation/preemption, 18 decisions, 0.087
+  ratio, six collisions, no re-entry, and also timed out
+* on the hard scene both Hybrid variants activated Search once, used only three
+  PPO decisions with 0.014 active ratio, and timed out. This remains a Search /
+  Perception / task-design limitation rather than a PPONavigate training result
+* Hybrid-context training did not improve mild-unseen success (3/4 versus 3/4),
+  so M5 records the explicit negative result rather than continuing training
+* a seven-scenario Adapter regression matched old Frozen Hybrid execution and
+  `HybridPPOEnv` external-action execution on success, elapsed time, path length,
+  and collision count within `1e-6` absolute tolerance
+* independent human demos completed for `ppo_simple_obstacle` and
+  `m43_reverse_detour` across all four Controllers without modifying batch data
+
+M5.0 through M5.3 are now **COMPLETE**. M5 confirms that BT, PPO, Frozen PPO as
+a BT Action, 60 Hz BT supervision/preemption, and Hybrid external-action
+ownership can share the same Environment, Gym, Renderer, and Experiment
+infrastructure. It does not claim that the current Hybrid improves navigation,
+nor does it solve Target memory, Search, richer Perception, or hard navigation.
+No M6 work was started.
+
+M5.3 structured outputs and commands:
+
+```text
+experiments/comparisons/m53/m53_final.csv
+experiments/comparisons/m53/m53_final_summary.json
+experiments/comparisons/m53/runs/<scenario>/<controller>/
+experiments/comparisons/m53/adapter_equivalence_runs/<scenario>/
+experiments/comparisons/m53/human_demos/<scenario>/<controller>/
+
+conda run -n pygame_lab python -m scripts.eval_m53_final
+conda run -n pygame_lab python -m scripts.eval_m53_final --human-demo
+```
+
+Milestone 5.2 Hybrid PPO Lab Adapter framework validation completed:
+
+* `autonomy_lab/gym/hybrid_env.py` exposes PPO decisions only while the real
+  `PPONavigate` node owns control; it does not introduce another scheduler or
+  duplicate the Hybrid tree
+* World simulation and BT supervision remain 60 Hz; one PPO decision controls
+  at most six actual World steps, while Boundary Recovery and Search retain
+  their own BT Commands and can take ownership between PPO decisions
+* Gym returns at the next PPO decision point, Episode end, or horizon; reward,
+  simulation time, trajectory, collision events, and Recorder metrics aggregate
+  actual internal World steps rather than PPO decision steps
+* the Adapter uses the unchanged 13-D perception Observation and existing
+  Reward semantics; privileged ground-truth target distance remains confined to
+  reward shaping
+* external-action mode is opt-in. Existing frozen Hybrid execution remains the
+  default, and a seven-scenario adapter equivalence smoke check matched its
+  success, elapsed time, path length, and collisions
+* `scripts/train_hybrid_ppo.py` now defaults to a 2,048-decision smoke run.
+  Longer training requires an explicit `--target-timesteps` value because the
+  current project focus is Lab framework correctness, not PPO optimization
+* a completed 200,704-step checkpoint is preserved as diagnostic evidence. It
+  did not improve the two Hybrid-relevant scenario pass count (both Frozen and
+  trained Hybrid passed 1/2); the requested 500k continuation was stopped and
+  no incomplete checkpoint was saved
+
+M5.2 did not change the Hybrid topology, Observation, Action, Reward, World
+dynamics, Perception, Renderer, collision semantics, termination, or public
+ExperimentRecorder metric definitions. M5.3 subsequently performed the frozen
+final evaluation above.
+
+M5.2 framework commands:
+
+```text
+conda run -n pygame_lab python -m scripts.train_hybrid_ppo --model-path models/ppo_m52_smoke.zip --log-label m52_hybrid_smoke
+conda run -n pygame_lab python -m scripts.eval_m52_hybrid --model-path models/ppo_m52_hybrid_trained_200k.zip --checkpoint-label 200k
+```
+
+Milestone 5.1 Hybrid Evaluation & Behavior Analysis completed:
+
+* `scripts/eval_m51_hybrid.py` evaluates the frozen default BT, deterministic
+  `models/ppo_m41b_control10hz.zip`, and `hybrid_ppo.json` on the same seven
+  fixed scenarios and verifies matching World initial states
+* World simulation and BT supervision remain 60 Hz; Pure PPO and the active
+  Hybrid PPO node infer at approximately 10 Hz; common metrics remain based on
+  actual World simulation time and steps rather than Controller decisions
+* read-only instrumentation records BT ticks/transitions, PPO decisions and
+  active time/ratio, Boundary Recovery and Search activations, and PPO
+  preemptions without changing topology, commands, or metric semantics
+* seed 5001 standardizes the fixed-layout pipeline; the statistical unit is
+  the scenario, not repeated stochastic trials
+* BT and PPO passed 2/2 seen, 4/4 mild unseen, and 1/1 hard scenarios; Hybrid
+  passed 2/2 seen, 3/4 mild unseen, and 0/1 hard scenarios
+* on mild unseen scenes, BT averaged 6.050 s / 781.3 px / 0 collisions, PPO
+  3.613 s / 788.9 px / 1.00 collisions, and Hybrid 7.625 s / 669.2 px / 1.25
+  collisions across all episodes, including the Hybrid timeout
+* Hybrid matched PPO exactly while PPO Navigation remained active. In Reverse
+  Detour it selected the PPO upper route, then one Boundary Recovery activation
+  preempted PPO and the episode timed out; PPO active ratio was 0.084
+* in the hard narrow-gap scene, one Search activation followed target loss;
+  PPO active ratio fell to 0.014 and Hybrid timed out. These results show an
+  unresolved high-level handoff/recovery interaction, not a new capability
+* Human demos cover the simple obstacle, Reverse Detour Boundary preemption,
+  and hard-scene Search activation; they write only to the separate human-demo
+  directory and do not enter the batch summary
+
+M5.1 did not retrain PPO or modify BT topology/parameters, Reward, Observation,
+Action, dynamics, Perception, scenarios, World stepping, Renderer, termination,
+collision semantics, or Recorder schema. M4.2/M4.3 outputs were not overwritten,
+M5.2 subsequently added the opt-in external-policy Lab Adapter described above.
+
+M5.1 structured outputs:
+
+```text
+experiments/comparisons/m51/m51_bt_ppo_hybrid.csv
+experiments/comparisons/m51/m51_bt_ppo_hybrid_summary.json
+experiments/comparisons/m51/runs/<scenario>/<controller>/
+experiments/comparisons/m51/human_demos/<scenario>/<controller>/
+```
+
+Reproduction commands:
+
+```text
+conda run -n pygame_lab python -m scripts.eval_m51_hybrid
+conda run -n pygame_lab python -m scripts.eval_m51_hybrid --human-demo
+```
+
+Milestone 5.0 Frozen PPO Action Integration completed:
+
+* `bt_configs/hybrid_ppo.json` defines a separate Hybrid tree with priority
+  Boundary Recovery, visible-target Learned Navigation, and Search fallback;
+  the original `default.json` baseline is unchanged
+* `PPONavigate` is registered through the existing Registry/Loader and loads
+  `models/ppo_m41b_control10hz.zip` once per Controller instance without
+  calling `learn()`, saving a model, or stepping the World
+* Gym and Hybrid inference now share
+  `autonomy_lab.observation.build_navigation_observation`, preserving the
+  frozen 13-D field order, normalization, neutral values, and `float32` dtype
+* World simulation and BT supervision remain 60 Hz; the PPO node uses
+  simulation `dt` to call deterministic `predict()` at approximately 10 Hz
+  and reapplies the cached Command on the intervening ticks
+* the new Boundary Safety branch can preempt PPO at 60 Hz; PPO termination
+  clears its own stale Command without overwriting a new higher-priority
+  Action command, and target invisibility returns control to Search Target
+* `main.py --bt hybrid_ppo` reuses the existing Controller, Visualizer, World,
+  Renderer, and ExperimentRecorder, with controller label `hybrid_bt_ppo`
+* on fixed seeds 6001-6003, Hybrid and Pure PPO both reached 3/3 targets with
+  zero collisions in `rl_sanity` and `ppo_simple_obstacle`; their elapsed time
+  and path length matched exactly at 1.983 s / 436.3 px and
+  3.600 s / 792.0 px respectively
+
+M5.0 did not retrain PPO or change Reward, Observation schema, Action, Agent
+dynamics, Perception, World stepping, Renderer, the default BT topology, or
+Recorder metric semantics. M5.1 later evaluated this frozen implementation;
+M5.2 subsequently added the opt-in external-policy Lab Adapter described above.
+
 Milestone 4.4 project structure cleanup completed:
 
 * root keeps `main.py` as the primary interactive launcher; Gym/PPO/evaluation
   entry points moved to the importable `scripts/` package
-* the supported commands are `python -m scripts.gym_demo`,
+* the supported commands include `python -m scripts.gym_demo`,
   `python -m scripts.train_ppo`, `python -m scripts.eval_ppo`,
   `python -m scripts.compare_bt_ppo`, and
-  `python -m scripts.eval_m43_generalization`
+  `python -m scripts.eval_m43_generalization`; M5.1 later added
+  `python -m scripts.eval_m51_hybrid`
 * M4.2/M4.3 shared BT/PPO Episode execution, initial-state capture/matching, and
   decision-frequency constants moved to `autonomy_lab/experiment/runners.py`
 * scenario/seed orchestration, CSV paths, milestone grouping, and summary logic
@@ -157,7 +326,7 @@ Milestone 4.4 project structure cleanup completed:
 
 M4.4 changed structure only. It did not change BT/PPO behavior, Observation,
 Reward, Action, dynamics, Perception, collision/termination semantics, Recorder
-metrics, or M4.2/M4.3 statistics. No M5 work was started.
+metrics, or M4.2/M4.3 statistics. M4.4 itself did not start M5 work.
 
 Milestone 4.3 zero-shot geometry generalization completed:
 

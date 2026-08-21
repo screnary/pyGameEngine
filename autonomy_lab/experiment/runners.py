@@ -15,6 +15,7 @@ from autonomy_lab.bt.controller import PANEL_WIDTH, BehaviorTreeController
 from autonomy_lab.environment import Environment
 from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.gym.env import AgentGymEnv, SIMULATION_DT
+from autonomy_lab.gym.hybrid_env import HybridPPOEnv
 from autonomy_lab.scene_config import get_scene
 
 
@@ -110,6 +111,8 @@ def run_bt_episode(
     output_dir: Path,
     render_mode: str | None = None,
     bt_config: str = "default",
+    recorder_controller: str = "bt",
+    collect_diagnostics: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """按当前正式 60 Hz BT tick 运行一个完整 World Episode。"""
     world = Environment(get_scene(scenario))
@@ -120,7 +123,7 @@ def run_bt_episode(
     recorder.start_episode(
         world,
         scenario,
-        "bt",
+        recorder_controller,
         track_bt=True,
         bt_config_id=controller.bt_config_id,
     )
@@ -155,7 +158,7 @@ def run_bt_episode(
                 payload = recorder.finish_episode("TIMEOUT", "timeout")
 
             if renderer is not None:
-                renderer.render(world, controller, "bt")
+                renderer.render(world, controller, recorder_controller)
                 renderer.pace(round(BT_DECISION_FREQUENCY))
     finally:
         if renderer is not None:
@@ -165,7 +168,28 @@ def run_bt_episode(
 
     if payload is None:
         raise RuntimeError("BT Episode ended without a Recorder payload")
-    return _comparison_row(payload, BT_DECISION_FREQUENCY, decisions), initial_state
+    row = _comparison_row(payload, BT_DECISION_FREQUENCY, decisions)
+    if collect_diagnostics:
+        simulation_time = float(world.simulation_time)
+        row.update(
+            {
+                "bt_tick_count": int(payload["bt_tick_count"]),
+                "bt_transition_count": int(payload["bt_transition_count"]),
+                "ppo_decision_count": controller.ppo_decision_count,
+                "ppo_active_time": round(controller.ppo_active_time, 6),
+                "ppo_active_ratio": (
+                    controller.ppo_active_time / simulation_time
+                    if simulation_time > 0.0
+                    else 0.0
+                ),
+                "boundary_recovery_activation_count": (
+                    controller.boundary_recovery_activation_count
+                ),
+                "search_activation_count": controller.search_activation_count,
+                "ppo_preemption_count": controller.ppo_preemption_count,
+            }
+        )
+    return row, initial_state
 
 
 def run_ppo_episode(
@@ -204,3 +228,66 @@ def run_ppo_episode(
     if payload is None:
         raise RuntimeError("PPO Episode ended without a Recorder payload")
     return _comparison_row(payload, PPO_DECISION_FREQUENCY, decisions), initial_state
+
+
+def run_hybrid_policy_episode(
+    scenario: str,
+    seed: int,
+    output_dir: Path,
+    model: Any,
+    render_mode: str | None = None,
+    recorder_controller: str = "hybrid_trained_ppo",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """用外部 deterministic Policy 驱动 Hybrid 的 PPO ownership 区间。"""
+    recorder = ExperimentRecorder(output_dir)
+    env = HybridPPOEnv(
+        scenarios=(scenario,),
+        render_mode=render_mode,
+        recorder=recorder,
+        recorder_controller=recorder_controller,
+    )
+    decisions = 0
+    payload: dict[str, Any] | None = None
+    last_info: dict[str, Any] = {}
+    try:
+        observation, last_info = env.reset(seed=seed)
+        initial_state = capture_initial_state(env.world)
+        while payload is None:
+            if render_mode == "human" and _pygame_window_closed():
+                payload = recorder.finish_episode("INTERRUPTED", "window_closed")
+                break
+            action, _ = model.predict(observation, deterministic=True)
+            observation, _, terminated, truncated, last_info = env.step(action)
+            decisions += 1
+            if terminated or truncated:
+                payload = env.last_episode_payload
+    finally:
+        env.close()
+
+    if payload is None:
+        raise RuntimeError("Hybrid PPO Episode ended without a Recorder payload")
+    row = _comparison_row(payload, PPO_DECISION_FREQUENCY, decisions)
+    row.update(
+        {
+            "bt_tick_count": int(payload["bt_tick_count"]),
+            "bt_transition_count": int(payload["bt_transition_count"]),
+            "ppo_decision_count": int(last_info["ppo_decision_count"]),
+            "ppo_active_time": float(last_info["ppo_active_time"]),
+            "ppo_active_ratio": float(last_info["ppo_active_ratio"]),
+            "boundary_recovery_activation_count": int(
+                last_info["boundary_recovery_activation_count"]
+            ),
+            "search_activation_count": int(
+                last_info["search_activation_count"]
+            ),
+            "ppo_preemption_count": int(last_info["ppo_preemption_count"]),
+            "ppo_reentry_count": int(last_info["ppo_reentry_count"]),
+            "observation_before_preemption": last_info[
+                "observation_before_preemption"
+            ],
+            "observation_after_reentry": last_info[
+                "observation_after_reentry"
+            ],
+        }
+    )
+    return row, initial_state

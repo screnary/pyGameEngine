@@ -1,0 +1,57 @@
+{
+  "format": "bt-lab/v1",
+  "id": "hybrid_bt_ppo",
+  "name": "Hybrid BT + Frozen PPO",
+  "root": {
+    "type": "selector",
+    "name": "Priority Selector",
+    "memory": false,
+    "children": [
+      {
+        "type": "sequence",
+        "name": "Boundary Recovery",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Boundary Risk?",
+            "behavior": "BoundaryRisk",
+            "params": {"margin": 40.0}
+          },
+          {
+            "type": "action",
+            "name": "Safe Boundary Recovery",
+            "behavior": "SafeBoundaryRecovery",
+            "params": {"throttle": 0.5}
+          }
+        ]
+      },
+      {
+        "type": "sequence",
+        "name": "Learned Navigation",
+        "memory": false,
+        "children": [
+          {
+            "type": "condition",
+            "name": "Target Visible?",
+            "behavior": "TargetVisible"
+          },
+          {
+            "type": "action",
+            "name": "PPO Navigate",
+            "behavior": "PPONavigate",
+            "params": {
+              "model_path": "models/ppo_m41b_control10hz.zip",
+              "decision_hz": 10
+            }
+          }
+        ]
+      },
+      {
+        "type": "action",
+        "name": "Search Target",
+        "behavior": "SearchTarget"
+      }
+    ]
+  }
+}

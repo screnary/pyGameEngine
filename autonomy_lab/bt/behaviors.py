@@ -6,12 +6,19 @@ Python ``__init__`` 只在 Loader 构建树时调用一次；py_trees 的
 """
 
 import math
+from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pygame
 import py_trees
 
+from ..observation import build_navigation_observation
 from ..perception import PerceivedGap, PerceivedObstacle, normalise_angle
 from .context import BehaviorBuildContext
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class AgentBehaviour(py_trees.behaviour.Behaviour):
@@ -117,6 +124,59 @@ class TargetAvailable(AgentCondition):
             else "visible"
         )
         self.feedback_message = f"{source}: {distance:.0f} px, {bearing:+.0f} deg"
+        return py_trees.common.Status.SUCCESS
+
+
+class TargetVisible(AgentCondition):
+    """只在 Target 当前通过 range/FOV/LOS 感知时返回 SUCCESS。
+
+    与 ``TargetAvailable`` 不同，本节点不会接受 ground-truth 模式保留的目标
+    信息。Frozen PPO 的 Observation 也只编码可见目标，因此 Hybrid 高层门控
+    必须使用同一可见性语义。
+    """
+
+    def update(self) -> py_trees.common.Status:
+        snapshot = self.context.perception.snapshot
+        if not snapshot.target_visible:
+            self.feedback_message = snapshot.target_unavailable_reason
+            return py_trees.common.Status.FAILURE
+        self.feedback_message = "target visible"
+        return py_trees.common.Status.SUCCESS
+
+
+class BoundaryRisk(AgentCondition):
+    """检测 Agent 圆形碰撞体是否进入任一 World 边界的安全余量。"""
+
+    allowed_params = frozenset({"margin"})
+
+    def __init__(
+        self, context: BehaviorBuildContext, name: str, **params: object
+    ) -> None:
+        super().__init__(context, name, **params)
+        try:
+            self.margin = float(self.params.get("margin", 40.0))
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "parameter 'margin' for BoundaryRisk must be numeric"
+            ) from error
+        if self.margin <= 0.0:
+            raise ValueError("parameter 'margin' for BoundaryRisk must be positive")
+
+    def update(self) -> py_trees.common.Status:
+        environment = self.context.perception.environment
+        agent = environment.agent
+        width, height = environment.world_size
+        clearances = {
+            "left": agent.position.x - agent.radius,
+            "right": width - agent.radius - agent.position.x,
+            "top": agent.position.y - agent.radius,
+            "bottom": height - agent.radius - agent.position.y,
+        }
+        side, clearance = min(clearances.items(), key=lambda item: item[1])
+        if clearance > self.margin:
+            self.feedback_message = f"boundary clear: {clearance:.0f} px"
+            return py_trees.common.Status.FAILURE
+        self.feedback_message = f"{side} boundary: {clearance:.0f} px"
         return py_trees.common.Status.SUCCESS
 
 
@@ -271,6 +331,193 @@ class AvoidObstacle(AgentAction):
         """被抢占变为 INVALID 时清除未完成计时。"""
         if new_status == py_trees.common.Status.INVALID:
             self.remaining = 0.0
+
+
+class SafeBoundaryRecovery(AgentAction):
+    """朝 World 中心转向并低速驶离边界，直到高层 Condition 不再成立。"""
+
+    allowed_params = frozenset({"throttle"})
+
+    def __init__(
+        self, context: BehaviorBuildContext, name: str, **params: object
+    ) -> None:
+        super().__init__(context, name, **params)
+        self.command = context.command
+        try:
+            self.throttle = float(self.params.get("throttle", 0.5))
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "parameter 'throttle' for SafeBoundaryRecovery must be numeric"
+            ) from error
+        if not 0.0 <= self.throttle <= 1.0:
+            raise ValueError(
+                "parameter 'throttle' for SafeBoundaryRecovery must be in [0, 1]"
+            )
+
+    def update(self) -> py_trees.common.Status:
+        environment = self.context.perception.environment
+        agent = environment.agent
+        width, height = environment.world_size
+        offset = pygame.Vector2(width / 2.0, height / 2.0) - agent.position
+        desired_heading = math.atan2(offset.y, offset.x)
+        error = normalise_angle(desired_heading - agent.heading)
+        self.command["turn"] = max(
+            -1.0, min(1.0, error / math.radians(45.0))
+        )
+        self.command["throttle"] = self.throttle
+        self.feedback_message = f"recover inward: {math.degrees(error):+.0f} deg"
+        return py_trees.common.Status.RUNNING
+
+    def terminate(self, new_status: py_trees.common.Status) -> None:
+        """结束或被抢占时清空安全动作，避免其覆盖下一条控制分支。"""
+        self.command["turn"] = 0.0
+        self.command["throttle"] = 0.0
+
+
+class PPONavigate(AgentAction):
+    """用冻结 PPO Policy 产生连续导航命令，但不推进 World。
+
+    BT 仍以 60 Hz tick 本节点；``decision_hz`` 只控制调用 ``predict`` 的频率。
+    两次决策之间，每次 update 都重新写入缓存动作，以兼容 Controller 在每个
+    tick 开始时清空共享 Command 的既有生命周期。
+    """
+
+    allowed_params = frozenset({"model_path", "decision_hz"})
+
+    def __init__(
+        self, context: BehaviorBuildContext, name: str, **params: object
+    ) -> None:
+        super().__init__(context, name, **params)
+        model_path = self.params.get("model_path")
+        if not isinstance(model_path, str) or not model_path:
+            raise ValueError("parameter 'model_path' for PPONavigate must be a path")
+        try:
+            self.decision_hz = float(self.params.get("decision_hz", 10.0))
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "parameter 'decision_hz' for PPONavigate must be numeric"
+            ) from error
+        if self.decision_hz <= 0.0:
+            raise ValueError("parameter 'decision_hz' for PPONavigate must be positive")
+
+        path = Path(model_path)
+        self.model_path = path if path.is_absolute() else PROJECT_ROOT / path
+        self.external_control = context.external_ppo_control
+        self.external_action: tuple[float, float] | None = None
+        if self.external_control:
+            # 训练 Adapter 会在 BT 授予本节点控制权后提供动作；这里不加载
+            # Frozen checkpoint，避免把旧 Policy 混入新 Policy 的 rollout。
+            self.model: Any = None
+        else:
+            # 延迟导入使普通 default BT 不必在模块导入时初始化 RL Framework。
+            from stable_baselines3 import PPO
+
+            # 每个 Node/Controller 实例只在构建期加载一次；initialise 不读磁盘。
+            self.model = PPO.load(str(self.model_path))
+        self.command = context.command
+        self.dt = 0.0
+        self.decision_interval = 1.0 / self.decision_hz
+        self.elapsed_since_decision = 0.0
+        self.decision_due = True
+        self.cached_action = (0.0, 0.0)
+        self.decision_count = 0
+
+    def initialise(self) -> None:
+        """每次高层重新进入导航分支时，立即基于最新感知决策一次。"""
+        self.elapsed_since_decision = 0.0
+        self.decision_due = True
+        self.cached_action = (0.0, 0.0)
+
+    def update(self) -> py_trees.common.Status:
+        if self.external_control:
+            if self.external_action is None:
+                self.cached_action = (0.0, 0.0)
+                self.command["turn"] = 0.0
+                self.command["throttle"] = 0.0
+                self.feedback_message = "PPO action required"
+                return py_trees.common.Status.RUNNING
+            self.cached_action = self.external_action
+            self.command["turn"], self.command["throttle"] = self.cached_action
+            self.feedback_message = (
+                f"External PPO: turn={self.cached_action[0]:+.2f}, "
+                f"throttle={self.cached_action[1]:+.2f}"
+            )
+            return py_trees.common.Status.RUNNING
+
+        if self.decision_due or (
+            self.elapsed_since_decision + 1e-12 >= self.decision_interval
+        ):
+            observation = build_navigation_observation(
+                self.context.perception.environment
+            )
+            action, _ = self.model.predict(observation, deterministic=True)
+            action_array = np.asarray(action, dtype=np.float32).reshape(-1)
+            if action_array.size != 2 or not np.all(np.isfinite(action_array)):
+                raise RuntimeError("PPO predict must return finite [turn, throttle]")
+            clipped = np.clip(action_array, -1.0, 1.0)
+            self.cached_action = (float(clipped[0]), float(clipped[1]))
+            self.elapsed_since_decision = 0.0
+            self.decision_due = False
+            self.decision_count += 1
+
+        # Controller 每 tick 先清零共享字典，因此无新 predict 时也要恢复缓存动作。
+        self.command["turn"], self.command["throttle"] = self.cached_action
+        self.elapsed_since_decision += self.dt
+        self.feedback_message = (
+            f"PPO {self.decision_hz:g} Hz: turn={self.cached_action[0]:+.2f}, "
+            f"throttle={self.cached_action[1]:+.2f}"
+        )
+        return py_trees.common.Status.RUNNING
+
+    @property
+    def action_required(self) -> bool:
+        """训练模式下指示当前已获控制权但尚无 PPO Action。"""
+        return self.external_control and self.external_action is None
+
+    def provide_external_action(self, action: object) -> None:
+        """接收一次 SB3 决策，并立即更新当前已授权的共享 Command。"""
+        if not self.external_control:
+            raise RuntimeError("external PPO action is disabled for this node")
+        if self.status != py_trees.common.Status.RUNNING:
+            raise RuntimeError("PPO Navigate does not currently own control")
+        action_array = np.asarray(action, dtype=np.float32).reshape(-1)
+        if (
+            action_array.size != 2
+            or not np.all(np.isfinite(action_array))
+            or np.any(action_array < -1.0)
+            or np.any(action_array > 1.0)
+        ):
+            raise ValueError("external PPO action must be finite [turn, throttle]")
+        self.external_action = (float(action_array[0]), float(action_array[1]))
+        self.cached_action = self.external_action
+        self.command["turn"], self.command["throttle"] = self.cached_action
+        self.decision_count += 1
+
+    def clear_external_action(self) -> None:
+        """结束一个 PPO decision interval，但不改变 BT 节点状态。"""
+        if not self.external_control:
+            return
+        self.external_action = None
+        self.cached_action = (0.0, 0.0)
+        self.command["turn"] = 0.0
+        self.command["throttle"] = 0.0
+
+    def terminate(self, new_status: py_trees.common.Status) -> None:
+        """Boundary/Search/Tree reset 抢占时立即移除冻结 Policy 的旧命令。"""
+        # py_trees 可能先 tick 新高优先级 Action、再 invalidate 旧 PPO Node。
+        # 只有共享字典仍保存 PPO 自己的缓存动作时才清零；否则保留新分支已经
+        # 写入的安全命令。Tree reset 时没有新写入者，因此仍会正确清零。
+        command_is_ours = (
+            self.command["turn"] == self.cached_action[0]
+            and self.command["throttle"] == self.cached_action[1]
+        )
+        if command_is_ours:
+            self.command["turn"] = 0.0
+            self.command["throttle"] = 0.0
+        self.cached_action = (0.0, 0.0)
+        self.external_action = None
+        self.elapsed_since_decision = 0.0
+        self.decision_due = True
 
 
 class MoveToTarget(AgentAction):

@@ -14,11 +14,39 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 from autonomy_lab.experiment.recorder import ExperimentRecorder
 from autonomy_lab.environment import Environment
 from autonomy_lab.gym.env import AgentGymEnv
+from autonomy_lab.observation import build_navigation_observation
 from autonomy_lab.scene_config import get_scene
 
 
 class AgentGymEnvCoreTests(unittest.TestCase):
     """每个断言都针对 Gym/World 边界上的可观察契约。"""
+
+    def test_shared_navigation_observation_matches_known_rl_sanity_state(self):
+        """共享编码器必须保留 M4 训练时的 13-D 顺序、归一化和 dtype。"""
+        world = Environment(get_scene("rl_sanity"))
+
+        observation = build_navigation_observation(world)
+
+        expected = np.array(
+            [
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                400.0 / np.hypot(700.0, 500.0),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                104.0 / 700.0,
+                564.0 / 700.0,
+                234.0 / 500.0,
+                234.0 / 500.0,
+            ],
+            dtype=np.float32,
+        )
+        np.testing.assert_allclose(observation, expected, rtol=0.0, atol=1e-7)
+        self.assertEqual(observation.dtype, np.float32)
 
     def tearDown(self):
         env = getattr(self, "env", None)

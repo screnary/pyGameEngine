@@ -7,13 +7,17 @@ Behavior 自身。新增符合统一构造接口的节点时，只需在字典�
 from .behaviors import (
     AgentBehaviour,
     AvoidObstacle,
+    BoundaryRisk,
     MoveThroughGap,
     MoveToTarget,
     ObstacleThreat,
+    PPONavigate,
+    SafeBoundaryRecovery,
     SearchTarget,
     TargetAlignedGap,
     TargetAvailable,
     TargetPathBlocked,
+    TargetVisible,
     TraversableGap,
 )
 
@@ -27,11 +31,15 @@ BehaviorClass = type[AgentBehaviour]
 BEHAVIOR_REGISTRY: dict[str, BehaviorClass] = {
     "ObstacleThreat": ObstacleThreat,
     "AvoidObstacle": AvoidObstacle,
+    "BoundaryRisk": BoundaryRisk,
+    "SafeBoundaryRecovery": SafeBoundaryRecovery,
     "TargetAvailable": TargetAvailable,
+    "TargetVisible": TargetVisible,
     "TargetPathBlocked": TargetPathBlocked,
     "TargetAlignedGap": TargetAlignedGap,
     "MoveThroughGap": MoveThroughGap,
     "MoveToTarget": MoveToTarget,
+    "PPONavigate": PPONavigate,
     "TraversableGap": TraversableGap,
     "SearchTarget": SearchTarget,
 }

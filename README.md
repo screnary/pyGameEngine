@@ -5,7 +5,7 @@ Stable-Baselines3 的二维自主智能体科研原型，用于快速验证：
 
 - Behavior Tree 自主决策；
 - Reinforcement Learning；
-- 后续的 Behavior Tree + RL 混合控制。
+- Behavior Tree + RL 混合控制。
 
 项目以可运行实验和可观察行为为优先，不以生产级框架或通用游戏引擎为目标。
 
@@ -19,6 +19,7 @@ project_root/
 │   ├── agent.py                    # Agent 状态与运动更新
 │   ├── environment.py              # 唯一 World / Simulation Core
 │   ├── perception.py               # Target 与 Obstacle 感知快照
+│   ├── observation.py              # Gym / Frozen PPO 共用的 13-D 编码
 │   ├── scene_config.py             # Scenario 与实验参数
 │   │
 │   ├── bt/
@@ -34,7 +35,8 @@ project_root/
 │   │   └── assets.py               # 可选图片加载与 primitive fallback
 │   │
 │   ├── gym/
-│   │   └── env.py                  # Environment 的 Gymnasium Adapter
+│   │   ├── env.py                  # Environment 的标准 Gymnasium Adapter
+│   │   └── hybrid_env.py           # BT 调度上下文中的 PPO decision-step Adapter
 │   │
 │   └── experiment/
 │       ├── recorder.py             # Controller-independent Episode metrics
@@ -45,10 +47,15 @@ project_root/
 │   ├── train_ppo.py                # PPO training / fine-tuning 入口
 │   ├── eval_ppo.py                 # Random / PPO evaluation 与 rendering
 │   ├── compare_bt_ppo.py           # M4.2 frozen BT vs PPO comparison
-│   └── eval_m43_generalization.py  # M4.3 geometry generalization evaluation
+│   ├── eval_m43_generalization.py  # M4.3 geometry generalization evaluation
+│   ├── eval_m51_hybrid.py          # M5.1 BT / PPO / Hybrid evaluation
+│   ├── train_hybrid_ppo.py         # M5.2 Hybrid Lab 接线 smoke 入口
+│   ├── eval_m52_hybrid.py          # Frozen / external-policy Hybrid evaluation
+│   └── eval_m53_final.py           # M5 四 Controller 最终统一评价
 │
 ├── bt_configs/
-│   └── default.json                # bt-lab/v1 Behavior Tree Definition
+│   ├── default.json                # 原手工 BT baseline
+│   └── hybrid_ppo.json             # M5.0 Hybrid BT + Frozen PPO
 ├── assets/                         # 可选本地 PNG 图标
 ├── models/                         # 本地 PPO checkpoints
 ├── experiments/                    # 运行日志、trajectory 与统计结果
@@ -89,6 +96,7 @@ conda run -n pygame_lab python main.py
 
 ```powershell
 conda run -n pygame_lab python main.py --controller bt --bt default
+conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenario ppo_simple_obstacle
 conda run -n pygame_lab python main.py --controller manual
 conda run -n pygame_lab python main.py --scenario simple
 conda run -n pygame_lab python main.py --scenario obstacle_course
@@ -116,6 +124,10 @@ conda run -n pygame_lab python -m scripts.train_ppo --help
 conda run -n pygame_lab python -m scripts.eval_ppo --help
 conda run -n pygame_lab python -m scripts.compare_bt_ppo --help
 conda run -n pygame_lab python -m scripts.eval_m43_generalization --help
+conda run -n pygame_lab python -m scripts.eval_m51_hybrid --help
+conda run -n pygame_lab python -m scripts.train_hybrid_ppo --help
+conda run -n pygame_lab python -m scripts.eval_m52_hybrid --help
+conda run -n pygame_lab python -m scripts.eval_m53_final --help
 ```
 
 ## Simulation and Rendering Boundary
@@ -397,9 +409,223 @@ experiments/comparisons/m43_runs/<scenario>/<controller>/
 experiments/comparisons/m43_human_demos/<scenario>/<controller>/
 ```
 
+## M5.0 — Frozen PPO Action Integration
+
+M5.0 不重新训练模型，而是把冻结的
+`models/ppo_m41b_control10hz.zip` 作为标准 `py_trees` Action Node
+`PPONavigate` 接入独立的 `bt_configs/hybrid_ppo.json`：
+
+```text
+Priority Selector
+├── Boundary Recovery
+│   ├── Boundary Risk?
+│   └── Safe Boundary Recovery
+├── Learned Navigation
+│   ├── Target Visible?
+│   └── PPO Navigate
+└── Search Target
+```
+
+启动 Hybrid human demo：
+
+```powershell
+conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenario rl_sanity
+conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenario ppo_simple_obstacle
+```
+
+World 与 BT tick 保持 60 Hz。`PPO Navigate` 复用 Gym 训练时完全相同的
+13-D Observation 编码，只约每 0.1 s 调用一次 deterministic `model.predict()`，
+其余约 6 个 simulation ticks 继续输出缓存的 `[turn, throttle]`。Action Node
+不会调用 `Environment.step()`。
+
+Boundary Safety 每个 BT tick 都先于 PPO 检查，因此可在 60 Hz 抢占 Learned
+Navigation；Target 不可见时则回退到原 `Search Target`。Hybrid Tree 刻意不含
+手工 `Obstacle Avoidance` 分支，单障碍绕行由 Frozen PPO 本身完成。
+
+固定 seeds 6001–6003 的最小回归中，Pure PPO 与 Hybrid 在 `rl_sanity` 和
+`ppo_simple_obstacle` 都为 3/3 成功、0 collision，并分别得到完全一致的
+1.983 s / 436.3 px 与 3.600 s / 792.0 px。Episode 日志位于：
+
+```text
+experiments/m50_regression/<scenario>/<hybrid|ppo>/
+```
+
+## M5.1 — Hybrid Evaluation & Behavior Analysis
+
+M5.1 冻结 `default.json`、`hybrid_ppo.json` 与
+`models/ppo_m41b_control10hz.zip`，在同一 World 初态和公共指标下比较手工 BT、
+Pure PPO 与 Hybrid BT + PPO。World 和 BT supervision 为 60 Hz；PPO 仅在活跃时
+约 10 Hz 决策。固定布局各使用一次 seed 5001，统计单位是 Scenario，不代表随机
+重复试验成功概率。
+
+运行 batch evaluation：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m51_hybrid
+python -m scripts.eval_m51_hybrid --human-demo
+
+# Pure BT
+conda run -n pygame_lab python main.py --controller bt --bt default --scenario ppo_simple_obstacle
+
+# Hybrid BT + PPO
+conda run -n pygame_lab python main.py --controller bt --bt hybrid_ppo --scenario ppo_simple_obstacle
+
+```
+
+独立运行 `ppo_simple_obstacle`、`m43_reverse_detour` 与
+`ppo_simple_obstacles` 的三 Controller Human Demo（分别观察普通导航、Boundary
+抢占和 Search 切换；不会写入或污染 batch 结果）：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m51_hybrid --human-demo
+```
+
+本次冻结评估结果：
+
+| Controller | seen | unseen_mild | ood_hard | mild 平均耗时 | mild 平均路径 | mild 平均碰撞 |
+|---|---:|---:|---:|---:|---:|---:|
+| BT | 2/2 | 4/4 | 1/1 | 6.050 s | 781.3 px | 0.00 |
+| PPO | 2/2 | 4/4 | 1/1 | 3.613 s | 788.9 px | 1.00 |
+| Hybrid | 2/2 | 3/4 | 0/1 | 7.625 s | 669.2 px | 1.25 |
+
+Hybrid 在 seen 以及三个 mild 场景中全程由 PPO 分支控制，轨迹与 Pure PPO
+一致。在 `m43_reverse_detour` 中，Hybrid 最初继承 PPO 的上方绕行选择，随后
+Boundary Recovery 激活并抢占 PPO；最终在 20 s horizon 超时。该 Episode 的 PPO
+active ratio 为 0.084，发生 1 次 Boundary Recovery activation 和 1 次 PPO
+preemption。在 hard `ppo_simple_obstacles` 中，Target 很快不可见，Search
+activation 1 次，PPO active ratio 仅 0.014，最终同样超时。
+
+这说明当前 Hybrid 在普通 visible-target 条件下等价于 PPO，但高优先级 BT 分支
+并未在这两个压力场景中形成有效恢复，反而改变了原本成功的 PPO 轨迹。该结论只
+适用于列出的固定场景，不能解释为任意地图 generalization。
+
+输出位置：
+
+```text
+experiments/comparisons/m51/m51_bt_ppo_hybrid.csv
+experiments/comparisons/m51/m51_bt_ppo_hybrid_summary.json
+experiments/comparisons/m51/runs/<scenario>/<controller>/
+experiments/comparisons/m51/human_demos/<scenario>/<controller>/
+```
+
+## M5.2 — Hybrid PPO Lab Adapter
+
+当前阶段聚焦 Hybrid Lab 框架是否正确，不以长时间 PPO 训练或策略收敛为目标。
+`HybridPPOEnv` 复用真实 `hybrid_ppo.json` 和 `py_trees` Runtime，把一个 Gym
+`step(action)` 定义为“一次 PPO decision 到下一个 PPO decision point”：
+
+```text
+PPO 提交 [turn, throttle]
+  → 最多控制 6 个 1/60 s World steps
+  → BT 仍在每个 World step 以 60 Hz supervision
+  → Boundary Recovery / Search 可接管并输出自己的 Command
+  → PPO 重新获得控制、Episode 结束或 horizon 到达时返回
+```
+
+因此 reward、elapsed time、trajectory、collision 和 simulation time 都按实际
+World internal steps 聚合；BT 自主接管期间的动作不会被错误计作 PPO action。
+Observation 仍是同一份 13-D 感知编码，Ground Truth target distance 仍只用于
+已有 privileged progress reward，不进入 Policy Observation。
+
+默认训练命令现在只运行 2,048 个 PPO decision steps，用于检查 Env、SB3、模型
+save/load 和 logging 接线。需要长实验时必须显式提供 `--target-timesteps`：
+
+```powershell
+# 推荐的当前用法：短 smoke test
+conda run -n pygame_lab python -m scripts.train_hybrid_ppo `
+  --model-path models/ppo_m52_smoke.zip `
+  --log-label m52_hybrid_smoke
+
+# 读取已有 checkpoint 做结构化评估；不触发训练
+conda run -n pygame_lab python -m scripts.eval_m52_hybrid `
+  --model-path models/ppo_m52_hybrid_trained_200k.zip `
+  --checkpoint-label 200k --human-demo
+```
+
+框架验证已确认：同一个 frozen M4.1b Policy 经旧 Hybrid runner 和新的
+external-action Adapter 运行 7 个固定场景时，success、elapsed time、path length
+和 collision count 一致；Boundary 抢占测试也确认 PPO action 会立即停止，BT
+恢复完成后才返回新的 PPO decision point。
+
+在切换为框架优先之前已完成一次 200,704-step 试跑，Hybrid-relevant 场景仍为
+1/2 成功，与 Frozen Hybrid 相同，因此该结果只作为诊断产物保留，不视为本阶段
+验收目标。后续 500k 续训已停止，且没有保存不完整 checkpoint。
+
+输出位置：
+
+```text
+experiments/comparisons/m52/200k/m52_frozen_vs_trained.csv
+experiments/comparisons/m52/200k/m52_frozen_vs_trained_summary.json
+experiments/comparisons/m52/200k/runs/<scenario>/<controller>/
+```
+
+## M5.3 — Hybrid BT-RL Final Evaluation
+
+M5.3 不训练模型，统一冻结并评价：
+
+```text
+BT                  = default.json
+Pure PPO            = ppo_m41b_control10hz.zip
+Frozen Hybrid       = hybrid_ppo.json + frozen M4.1b PPO
+Hybrid-trained PPO  = ppo_m52_hybrid_trained_200k.zip
+```
+
+运行最终 headless evaluation：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m53_final
+```
+
+运行两个代表场景 × 四 Controller 的独立 human demo：
+
+```powershell
+conda run -n pygame_lab python -m scripts.eval_m53_final --human-demo
+```
+
+固定 seed 5001 下的最终结果如下。均值按组内 **all episodes** 计算，timeout
+不会被排除；固定 Scenario 是统计单位，不代表随机地图泛化率。
+
+| Controller | Seen | Mild-Unseen | OOD-Hard | Mild 平均耗时 | Mild 平均路径 | Mild 平均碰撞 |
+|---|---:|---:|---:|---:|---:|---:|
+| BT | 2/2 | 4/4 | 1/1 | 6.050 s | 781.3 px | 0.00 |
+| Pure PPO | 2/2 | 4/4 | 1/1 | 3.613 s | 788.9 px | 1.00 |
+| Frozen Hybrid | 2/2 | 3/4 | 0/1 | 7.625 s | 669.2 px | 1.25 |
+| Hybrid-trained PPO | 2/2 | 3/4 | 0/1 | 7.617 s | 668.7 px | 1.50 |
+
+最终结论：
+
+- Frozen Hybrid 在两个 Seen 场景保留了 Pure PPO 的成功能力和公共指标；
+- `m43_reverse_detour` 中，Pure PPO 虽有 4 次 collision 仍成功，Frozen Hybrid
+  在一次 Boundary preemption 后没有重新进入 PPO，20 s timeout；
+- Hybrid-trained 在 Reverse Detour 同样 timeout，发生 6 次 collision，未证明
+  约 200k Hybrid-context adaptation 带来成功率提升；
+- hard narrow-gap 中，两种 Hybrid 都在 Target lost 后进入 Search，PPO active
+  ratio 仅约 0.014，说明主要限制来自当前 Search / Perception / task design；
+- 同一冻结 PPO 通过旧 Hybrid runtime 与 `HybridPPOEnv` external-action path
+  运行时，7/7 场景的 success、elapsed time、path length、collision count 在
+  `1e-6` tolerance 内一致。
+
+M5 至此标记为 **COMPLETE**。当前项目已经验证同一 World/Gym/Experiment 基础
+设施可稳定运行 BT、PPO 与 Hybrid BT-RL，并支持 60 Hz BT supervision、PPO
+preemption 和 external-action ownership。Target memory、PPO Search、richer
+perception 与其他 M6 研究能力仍未实现。
+
+输出位置：
+
+```text
+experiments/comparisons/m53/m53_final.csv
+experiments/comparisons/m53/m53_final_summary.json
+experiments/comparisons/m53/runs/<scenario>/<controller>/
+experiments/comparisons/m53/adapter_equivalence_runs/<scenario>/
+experiments/comparisons/m53/human_demos/<scenario>/<controller>/
+```
+
+将独立学习策略嵌入 BT 并进行局部再训练，并不能保证 Hybrid Controller 获得更好的泛化性能；高层行为切换、感知条件和控制权恢复本身可能成为新的性能瓶颈。
+
 ## Behavior Tree Definition
 
-当前 topology 定义在 `bt_configs/default.json`。`bt-lab/v1` 支持：
+手工 baseline 与 Hybrid topology 分别定义在 `bt_configs/default.json` 和
+`bt_configs/hybrid_ppo.json`。`bt-lab/v1` 支持：
 
 ```text
 selector
@@ -448,6 +674,7 @@ main.py
   → autonomy_lab/scene_config.py
   → autonomy_lab/environment.py / agent.py
   → autonomy_lab/perception.py
+  → autonomy_lab/observation.py
   → autonomy_lab/bt/context.py / behaviors.py
   → autonomy_lab/bt/registry.py / loader.py / controller.py
   → autonomy_lab/rendering/renderer.py / bt/visualizer.py

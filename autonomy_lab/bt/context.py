@@ -25,6 +25,9 @@ class BehaviorBuildContext:
     perception: AgentPerception
     command: dict[str, float]
     behavior_config: dict
+    # HybridPPOEnv 训练时由外部 SB3 Policy 提供动作；默认 False 保持冻结
+    # PPONavigate 自行加载 checkpoint 并推理的 M5.0/M5.1 行为。
+    external_ppo_control: bool = False
     # Loader 每完成一个节点就写入此字典，后续节点即可按 JSON name 查找。
     nodes_by_name: dict[str, py_trees.behaviour.Behaviour] = field(
         default_factory=dict

@@ -70,7 +70,7 @@ def main() -> None:
         if args.controller == "bt"
         else None
     )
-    controller_id = "bt-v1" if controller is not None else "manual"
+    controller_id = controller.controller_id if controller is not None else "manual"
 
     # Recorder 与 Controller 解耦：无论手动还是 BT，都记录相同的基础指标。
     recorder = ExperimentRecorder()
