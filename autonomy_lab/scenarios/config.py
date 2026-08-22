@@ -32,6 +32,17 @@ DEFAULT_SENSOR_CONFIG = {
     "los_enabled": True,
 }
 
+# R0.8 只为 ScenarioDistribution / Condition Research BT 启用这一 profile。
+# Goal 作为稳定导航信号覆盖当前 Research 分布；Hazard 只提供局部安全 context。
+# 固定 M4/M5 场景没有 ``profile`` 字段，因此继续走完全不变的 legacy FOV/LOS。
+DEFAULT_RESEARCH_SENSOR_CONFIG = {
+    "profile": "research",
+    "goal_range": 850.0,
+    "hazard_range": 300.0,
+    "goal_num_bins": 16,
+    "hazard_num_bins": 16,
+}
+
 DEFAULT_EXPERIMENT_CONFIG = {
     # 到达阈值属于 Episode 终止标准，可与 Behavior 内部阈值独立配置。
     "max_episode_time": 60.0,

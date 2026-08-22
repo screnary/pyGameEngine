@@ -142,6 +142,60 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
+R0.8 Research Sensing Semantics & Hazard Range Calibration completed:
+
+* calibration sampled five Research families over seeds 1001-1050, for 250
+  reproducible `family + seed` initial states, without running a Controller or training
+* Goal geometry is shared across the five families for a given seed, so Goal sensing
+  rates represent 50 unique Goal geometries rather than 250 independent layouts
+* the original `hazard_range=700 px` produced 100% Hazard availability, mean
+  visible count 3.000, and 100% all-Hazards-visible rate, so it was effectively global
+* candidate ranges 200/300/400/500/700 px were compared; 300 px was selected
+  because it retained 92% availability and mean count 1.100 while all-visible stayed 0%
+* the original 700 px Goal range sensed only 54% of the sampled initial states;
+  Research Goal range is now 850 px and covers 100%, preserving a stable task signal
+* Research sensing now has three documented roles: sensor coverage selects visible
+  Hazards, nearest clearance/bearing are object semantics, and 16 sectors are a
+  local free-space representation for handcrafted steering
+* `HazardRisk` remains `nearest_clearance < theta_hazard`; it does not consume the
+  full sector vector, while `AvoidHazard` continues to use nearest bearing/sectors
+* finite-range gating still precedes seeded noise, and Boundary remains independent
+* fixed legacy M4/M5 FOV/LOS, 13-D Observation, PPO/Hybrid checkpoints, and
+  historical evaluation paths remain unchanged
+* `scripts.evaluation.analyze_hazard_sensing_range` reproduces the calibration and
+  writes an independent JSON without changing ExperimentRecorder
+
+R0.8 is **COMPLETE**. Condition-RL, Safety-Gym dependencies/adapters, Search,
+memory, new rewards, new scenario families, PPO retraining, and M6 were not started.
+
+### Previous Milestone Record — R0.7
+
+R0.7 Safety-Gym-aligned Finite-Range Sensing completed:
+
+* one configurable `AgentPerception` implementation now selects either the
+  frozen `legacy` profile or the Research `research` profile
+* centralized Research defaults use equal `goal_range=hazard_range=700 px`
+  and 16 bins for both Goal direction and Hazard sectors
+* Research Goal sensing is 360-degree and range-only; it ignores FOV, LOS, and
+  `target_information_mode`, and exposes no distance/bearing/sector outside range
+* Research Hazard sensing is 360-degree and footprint-aware; out-of-range objects
+  do not enter nearest/visible data, while empty lidar sectors report max range
+* Research Hazard sectors intentionally exclude World Boundary; the existing
+  optional `BoundaryPerception` remains the independent boundary semantic
+* seeded Hazard noise is applied after the finite-range gate and cannot leak an
+  out-of-range object or modify collision geometry
+* `condition_research.json` consumes the new finite-range semantics without
+  topology, Action, or threshold changes
+* legacy M4/M5 FOV/LOS behavior, 12-sector safety data, 13-D Observation values,
+  Pure PPO, Frozen Hybrid, and HybridPPOEnv remain unchanged
+* the Research human renderer now shows sensing radii, Hazard sector rays, Goal
+  sensing state, and nearest Hazard clearance without changing World state
+
+R0.7 is **COMPLETE**. Safety-Gymnasium dependencies/adapters, normalized lidar
+observations, Condition-RL, Search/memory changes, new rewards, and M6 were not started.
+
+### Previous Milestone Record — Pre-M6 Responsibility Grouping
+
 Pre-M6 Responsibility Grouping completed:
 
 * World, Agent dynamics, and the frozen 13-D encoder live under `core/`

@@ -170,7 +170,8 @@ Legacy 13-D PPO / current BT / future research adapters
 ```
 
 - Goal 只表达 sensed/visible/available、距离和方位，不表达路径能否通过。
-- Hazard 包含局部障碍 clearance、12 方向 sector ranges 和可通行 gaps。
+- Hazard 包含局部障碍 clearance、legacy 12 / Research 16 方向 sector ranges
+  和可通行 gaps。
 - Boundary 提供 Agent 圆形碰撞体到四条 World 边界的像素净空。
 - 所有 semantic objects 都是 frozen 纯数据，不携带 `pygame.Rect`、World 或
   Surface。
@@ -224,8 +225,8 @@ controller.tick(1.0 / 60.0)  # 此 tick 立即使用 100 px
 R0.4 在固定 M4/M5/R0 regression scenarios 之外新增独立研究采样路径：
 
 ```python
-from autonomy_lab.environment import Environment
-from autonomy_lab.scenario_distribution import ScenarioDistribution
+from autonomy_lab.core.environment import Environment
+from autonomy_lab.scenarios.scenario_distribution import ScenarioDistribution
 
 scene = ScenarioDistribution("dynamic_hazard").sample(seed=42)
 world = Environment(scene)
@@ -354,6 +355,94 @@ store.reset("avoid_turn_gain")
 Manual、未来 PPO 或 CMA-ES。Store 本身也不区分 Condition 与 Action 参数，但
 R0.6 尚未迁移或新增任何 Action 参数，也没有实现 optimizer。
 
+## R0.7 Safety-Gym-aligned Finite-Range Sensing
+
+R0.7 首次通过同一 `AgentPerception` 的 `research` profile 引入有限距离 360°
+sensing；固定 M4/M5 Scenario 未声明 profile，仍走冻结的 legacy range/FOV/LOS
+与 12-sector 路径。R0.7 的初始 Research 配置为 Goal/Hazard 均 `700 px`，随后由
+R0.8 的固定样本统计校准。
+
+```text
+Research Goal lidar       360° / 16 bins / finite range
+Research Hazard lidar     360° / 16 bins / finite range
+Legacy M4/M5 sensing      unchanged
+```
+
+- Goal 在配置量程内暴露物理 distance、bearing 和 `sector_index`；超距时
+  `sensed=False`、`available=False`，distance/bearing/sector 均为 `None`。
+- Hazard 只在配置量程内进入 nearest/visible semantics；空 sector 返回当前
+  `hazard_range`，命中 sector 返回 footprint-aware clearance。
+- Research Hazard lidar 不编码 World Boundary；四向边界净空仍由独立
+  `BoundaryPerception` 提供。
+- Goal sensing 不检查 FOV、LOS 或路径可通行性。狭缝中可以同时成立
+  `Goal sensed` 与 `Goal direction blocked`。
+- noisy family 的顺序为 true geometry → finite-range gate → seeded noise →
+  `SemanticPerception`；超距对象不会被噪声泄漏，World Rect 也不会被修改。
+
+Research human demo 会绘制 Goal/Hazard sensing radius、16 条 Hazard sector 射线，
+并在状态栏显示 Goal sensed 与 nearest Hazard clearance：
+
+```powershell
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family narrow_passage --seed 901
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family noisy_perception --seed 42
+```
+
+本阶段只对齐 finite-range/object-specific lidar 机制；没有引入 Safety-Gymnasium
+dependency、adapter、normalized lidar Observation、Condition-RL 或 M6 功能。
+
+## R0.8 Research Sensing Semantics & Hazard Range Calibration
+
+第一篇论文路径现在明确采用：
+
+```text
+Goal       → 360° / 850 px long-range task signal → distance / bearing
+Hazard     → 360° / 300 px local safety coverage → nearest semantics
+16 sectors → local free-space representation      → handcrafted steering
+```
+
+校准使用 `static_random`、`dense_hazard`、`dynamic_hazard`、
+`noisy_perception`、`context_shift`，每个 family 使用 seeds `1001–1050`，共
+250 个 `family + seed` 初态。结果如下：
+
+同一 seed 在五个 family 中复用相同 Agent/Goal 初态，因此 Goal sensing rate 对应
+50 个唯一 Goal geometries；Hazard 统计则继续以 250 个 family-seed 初态为单位。
+
+| Hazard range | Availability | Mean visible count | All hazards visible |
+|---:|---:|---:|---:|
+| 200 px | 25.2% | 0.252 | 0.0% |
+| 300 px | 92.0% | 1.100 | 0.0% |
+| 400 px | 100.0% | 1.788 | 0.0% |
+| 500 px | 100.0% | 2.712 | 71.6% |
+| 700 px | 100.0% | 3.000 | 100.0% |
+
+因此原 `700 px` 实际近似全局 Hazard sensing；默认改为 `300 px`，仍保留较高
+局部输入可用率，但不会在 reset 时看见全部 Hazard。原 `goal_range=700 px` 在同一
+样本集的 initial sensing rate 只有 `54.0%`；为避免把第一篇论文变成 Search/Memory
+研究，Research Goal 长程范围提高到 `850 px`，initial sensing rate 为 `100.0%`。
+
+感知数据流按职责分为：
+
+```text
+Sensor Coverage
+    ↓
+visible Hazards
+    ↓
+nearest clearance / bearing       # HazardRisk 只读这里
+    ↓
+16-sector local free-space        # AvoidHazard / steering 使用
+```
+
+运行校准分析（不启动 Controller，不训练模型）：
+
+```powershell
+conda run -n pygame_lab python -m scripts.evaluation.analyze_hazard_sensing_range
+```
+
+默认结果写入 `experiments/analysis/r08_hazard_sensing_range.json`。Pygame Research
+Testbed 使用 long-range Goal + local Hazard；未来 Safety-Gym external benchmark
+保留其原生 sensing。两者只要求在 `SemanticPerception`、Condition 参数、BT 语义、
+adaptation algorithm 和评价指标层对齐，不强求 raw lidar、量程、尺度或物理一致。
+
 ## Script Entry Points
 
 非交互式入口位于 `scripts/`：
@@ -369,6 +458,7 @@ conda run -n pygame_lab python -m scripts.evaluation.eval_m51_hybrid --help
 conda run -n pygame_lab python -m scripts.training.train_hybrid_ppo --help
 conda run -n pygame_lab python -m scripts.evaluation.eval_m52_hybrid --help
 conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final --help
+conda run -n pygame_lab python -m scripts.evaluation.analyze_hazard_sensing_range --help
 ```
 
 ## Simulation and Rendering Boundary

@@ -13,6 +13,7 @@ import random
 from .config import (
     DEFAULT_BT_CONFIG,
     DEFAULT_EXPERIMENT_CONFIG,
+    DEFAULT_RESEARCH_SENSOR_CONFIG,
     DEFAULT_SENSOR_CONFIG,
     get_scene,
 )
@@ -133,11 +134,12 @@ class ScenarioDistribution:
             },
             "target": {"position": goal_position, "radius": 18},
             "obstacles": [],
-            # Research BT 没有 Search；Goal 真值仍先经过 SemanticPerception，且不影响
-            # Hazard sensing、碰撞或噪声实验。
-            "target_information_mode": "ground_truth",
+            # Research profile 自身按 360° finite range 决定 Goal availability；本字段
+            # 只为满足共享 Scene schema 保留，不能绕过 Research range gate。
+            "target_information_mode": "perceived",
             "sensor": {
                 **DEFAULT_SENSOR_CONFIG,
+                **DEFAULT_RESEARCH_SENSOR_CONFIG,
                 "range": 720.0,
                 "fov_degrees": 220.0,
             },
@@ -184,6 +186,8 @@ class ScenarioDistribution:
         )
         scene = deepcopy(get_scene(source))
         scene["seed"] = seed
+        # 固定 regression 只切换感知 profile，不改 R0.1 的任何几何与 BT 参数。
+        scene["sensor"].update(DEFAULT_RESEARCH_SENSOR_CONFIG)
         scene["research_metadata"] = {
             "family": self.family,
             "seed": seed,

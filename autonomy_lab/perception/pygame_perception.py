@@ -1,8 +1,8 @@
 """从 Environment 当前真值同步生成供 Behavior 使用的只读感知快照。
 
-这里的几何计算本身保持确定性。R0.4 research scene 可在最终 Hazard range
-measurement 上加入 seed-controlled noise；不模拟延迟或跟踪器。是否允许目标
-真值由 ``target_information_mode`` 单独控制。
+这里的几何计算本身保持确定性。R0.4 research scene 可在 finite-range gate 后的
+Hazard measurement 上加入 seed-controlled noise；不模拟延迟或跟踪器。Legacy
+目标真值由 ``target_information_mode`` 控制，Research Goal 则始终服从有限距离。
 """
 
 from __future__ import annotations
@@ -32,6 +32,19 @@ def normalise_angle(angle: float) -> float:
     return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
+def sector_index_for_bearing(bearing: float, num_bins: int) -> int:
+    """把相对方位映射到以 ``-π + i*step`` 为中心的最近 360° 扇区。
+
+    正前方在偶数分箱中位于中间索引（16 bins 时为 8），``π`` 与 ``-π``
+    都稳定回绕到索引 0。恰好落在两个中心之间时归入角度递增方向的扇区。
+    """
+    if num_bins <= 0:
+        raise ValueError("num_bins must be positive")
+    step = 2.0 * math.pi / num_bins
+    position = (normalise_angle(bearing) + math.pi) / step
+    return int(math.floor(position + 0.5)) % num_bins
+
+
 # Historical import names remain aliases only; the real output model is the
 # simulator-neutral SemanticPerception defined in semantic_perception.py.
 PerceivedObstacle = HazardObservation
@@ -44,13 +57,18 @@ class AgentPerception:
     """根据 Agent 位姿和场景几何生成最新 snapshot，不维护长期世界模型。"""
 
     VALID_TARGET_MODES = {"perceived", "ground_truth"}
+    VALID_SENSING_PROFILES = {"legacy", "research"}
     SECTOR_COUNT = 12
 
     def __init__(self, environment: Environment) -> None:
         self.environment = environment
-        # sensor 决定目标与障碍物可见范围；behavior_tree 中的 gap 参数决定
-        # 如何把有限条射线解释为可通行开口。
+        # sensor profile 先决定 Goal/Hazard 的 coverage；behavior_tree 中的 gap
+        # 参数只负责把局部 free-space 解释为可通行开口。
         self.sensor_config = environment.scene_config["sensor"]
+        # profile 缺省必须是 legacy，保证所有 M4/M5 固定场景与 checkpoint 兼容。
+        self.sensing_profile = str(self.sensor_config.get("profile", "legacy"))
+        if self.sensing_profile not in self.VALID_SENSING_PROFILES:
+            raise ValueError("sensor profile must be 'legacy' or 'research'")
         self.target_information_mode = environment.scene_config[
             "target_information_mode"
         ]
@@ -62,6 +80,23 @@ class AgentPerception:
         self.sensor_range = float(self.sensor_config["range"])
         self.half_fov = math.radians(float(self.sensor_config["fov_degrees"])) / 2.0
         self.los_enabled = bool(self.sensor_config["los_enabled"])
+        self.goal_range = float(
+            self.sensor_config.get("goal_range", self.sensor_range)
+        )
+        self.hazard_range = float(
+            self.sensor_config.get("hazard_range", self.sensor_range)
+        )
+        self.goal_num_bins = int(self.sensor_config.get("goal_num_bins", 16))
+        self.hazard_num_bins = int(
+            self.sensor_config.get("hazard_num_bins", self.SECTOR_COUNT)
+        )
+        if self.goal_range <= 0.0 or self.hazard_range <= 0.0:
+            raise ValueError("goal_range and hazard_range must be positive")
+        if self.goal_num_bins <= 0 or self.hazard_num_bins <= 0:
+            raise ValueError("goal_num_bins and hazard_num_bins must be positive")
+        if self.sensing_profile == "research":
+            # Gap/free-space 的派生射线也不得越过 Research hazard sensing 上限。
+            self.sensor_range = self.hazard_range
         gap_config = environment.scene_config["behavior_tree"]
         self.gap_ray_count = int(gap_config["gap_ray_count"])
         self.gap_min_travel_distance = float(
@@ -102,20 +137,33 @@ class AgentPerception:
         absolute_bearing = math.atan2(offset.y, offset.x)
         bearing = normalise_angle(absolute_bearing - agent.heading)
 
-        # visible 描述传感器是否看到；available 描述 BT 是否获准使用目标信息。
-        target_visible, reason = self._target_visibility(distance, bearing)
-        # ground_truth 模式绕过可见性限制；perceived 模式只暴露传感器观测。
-        target_available = (
-            target_visible or self.target_information_mode == "ground_truth"
-        )
-        if self.target_information_mode == "ground_truth":
-            source = "ground_truth"
-        elif target_visible:
-            source = "perception"
+        # Research Goal 是长程稳定任务信号：只按 360° finite range sensing，
+        # 不读取 FOV、LOS 或 ground_truth 模式。Legacy 分支保持历史语义。
+        if self.sensing_profile == "research":
+            target_visible = distance <= self.goal_range
+            reason = "" if target_visible else "out of range"
+            target_available = target_visible
+            source = "perception" if target_visible else None
+            goal_sector = (
+                sector_index_for_bearing(bearing, self.goal_num_bins)
+                if target_visible
+                else None
+            )
         else:
-            source = None
+            target_visible, reason = self._target_visibility(distance, bearing)
+            target_available = (
+                target_visible or self.target_information_mode == "ground_truth"
+            )
+            if self.target_information_mode == "ground_truth":
+                source = "ground_truth"
+            elif target_visible:
+                source = "perception"
+            else:
+                source = None
+            goal_sector = None
 
-        # 障碍物与缺口始终来自局部传感器几何，不因目标模式而改变。
+        # 三层职责保持显式：coverage 先筛出可感知对象；object semantics 提供
+        # nearest clearance/bearing；sector 再派生 Action 使用的局部 free-space。
         visible_obstacles = self._visible_obstacles()
         sector_clearances = self._sector_clearances()
         traversable_gaps = self._traversable_gaps()
@@ -171,6 +219,7 @@ class AgentPerception:
                 distance=distance if target_available else None,
                 bearing=bearing if target_available else None,
                 unavailable_reason=reason,
+                sector_index=goal_sector,
             ),
             hazard=HazardPerception(
                 visible_hazards=visible_obstacles,
@@ -211,7 +260,7 @@ class AgentPerception:
         return not any(obstacle.clipline(*line) for obstacle in self.environment.obstacles)
 
     def _visible_obstacles(self) -> tuple[HazardObservation, ...]:
-        """收集 FOV 内障碍物，并按 Agent 圆边缘距离从近到远排序。"""
+        """执行 Hazard coverage，并生成按圆边缘距离排序的 object semantics。"""
         agent = self.environment.agent
         visible: list[HazardObservation] = []
         for obstacle in self.environment.obstacles:
@@ -222,8 +271,6 @@ class AgentPerception:
             )
             offset = closest - agent.position
             center_distance = offset.length()
-            if center_distance > self.sensor_range:
-                continue
             direction = offset
             if not direction.length_squared():
                 # 圆心恰在矩形内部/边缘时最近点方向为零，改用矩形中心定 bearing。
@@ -231,20 +278,29 @@ class AgentPerception:
             bearing = normalise_angle(
                 math.atan2(direction.y, direction.x) - agent.heading
             )
-            if abs(bearing) > self.half_fov:
-                continue
             # center_distance 再减 Agent radius，得到圆形碰撞体边缘真值净距离。
-            # R0.4 noise 只扰动交给 Controller 的 Hazard range measurement；Rect、
-            # collision、sector/gap truth 和 Goal sensing 均不读取该随机值。
+            # R0.4 noise 只扰动交给 Controller 的 Hazard measurement；Rect、
+            # collision、gap geometry 和 Goal sensing 均不读取该随机值。Research
+            # sector measurement 也在自己的 finite-range gate 后使用同一噪声源。
             true_clearance = max(0.0, center_distance - agent.radius)
-            noise_level = self.environment.current_noise_level
-            measured_clearance = true_clearance
-            if noise_level > 0.0:
-                measured_clearance = max(
-                    0.0,
-                    true_clearance
-                    + self.environment.perception_random.gauss(0.0, noise_level),
-                )
+            if self.sensing_profile == "research":
+                # 必须先用无噪声真值做 finite-range gate；超距 Hazard 之后完全不
+                # 进入 measurement 阶段，噪声不能把它“拉回”感知范围。
+                if true_clearance > self.hazard_range:
+                    continue
+            else:
+                if center_distance > self.sensor_range:
+                    continue
+                if abs(bearing) > self.half_fov:
+                    continue
+            measured_clearance = self._measure_hazard_clearance(
+                true_clearance,
+                max_distance=(
+                    self.hazard_range
+                    if self.sensing_profile == "research"
+                    else None
+                ),
+            )
             visible.append(
                 HazardObservation(
                     clearance=measured_clearance,
@@ -255,23 +311,67 @@ class AgentPerception:
         return tuple(visible)
 
     def _sector_clearances(self) -> tuple[SectorRange, ...]:
-        """以 30° 间隔采样全方向实际碰撞 clearance。
+        """派生局部 footprint-aware free-space（legacy 12，Research 16 bins）。
 
-        Sector 使用 Agent 真实半径而不叠加 gap safety margin。这样 Agent 已处于
-        safety margin 内时，远离障碍的逃逸方向仍有正 clearance；用于缺口判定的
-        `_traversable_gaps` 则继续使用更保守的额外 margin。
+        射线求交只是当前 Pygame 几何实现，不是公共语义中的“16 根传感器”。
+        Sector 使用 Agent 真实半径而不叠加 gap safety margin，使 Action 获得周围
+        哪个方向更易安全通过的连续物理净空；Condition 仍只读 nearest Hazard。
         """
-        step = 2.0 * math.pi / self.SECTOR_COUNT
-        return tuple(
-            SectorRange(
-                bearing=-math.pi + index * step,
-                clearance=self._ray_free_distance(
-                    -math.pi + index * step,
-                    safety_margin=0.0,
-                ),
-            )
-            for index in range(self.SECTOR_COUNT)
+        count = (
+            self.hazard_num_bins
+            if self.sensing_profile == "research"
+            else self.SECTOR_COUNT
         )
+        step = 2.0 * math.pi / count
+        sectors: list[SectorRange] = []
+        for index in range(count):
+            bearing = -math.pi + index * step
+            true_clearance = self._ray_free_distance(
+                bearing,
+                safety_margin=0.0,
+                max_distance=(
+                    self.hazard_range
+                    if self.sensing_profile == "research"
+                    else None
+                ),
+                include_boundary=self.sensing_profile != "research",
+            )
+            measured_clearance = true_clearance
+            # 等于 max range 表示该射线未检测到 Hazard；只有真实命中才在 range
+            # gate 之后加噪，避免超距对象或空扇区被噪声伪造成近距离 Hazard。
+            if (
+                self.sensing_profile == "research"
+                and true_clearance < self.hazard_range
+            ):
+                measured_clearance = self._measure_hazard_clearance(
+                    true_clearance,
+                    max_distance=self.hazard_range,
+                )
+            sectors.append(
+                SectorRange(
+                    bearing=bearing,
+                    clearance=measured_clearance,
+                )
+            )
+        return tuple(sectors)
+
+    def _measure_hazard_clearance(
+        self,
+        true_clearance: float,
+        max_distance: float | None,
+    ) -> float:
+        """在完成真值 range gate 后加入可复现噪声，并裁剪到物理量程。"""
+        measured = true_clearance
+        noise_level = self.environment.current_noise_level
+        if noise_level > 0.0:
+            measured = max(
+                0.0,
+                true_clearance
+                + self.environment.perception_random.gauss(0.0, noise_level),
+            )
+        if max_distance is not None:
+            measured = min(measured, max_distance)
+        return measured
 
     def _traversable_gaps(self) -> tuple[PerceivedGap, ...]:
         """在整个 FOV 均匀采样射线，并把连续开放射线合并为缺口。"""
@@ -343,6 +443,8 @@ class AgentPerception:
         self,
         relative_bearing: float,
         safety_margin: float | None = None,
+        max_distance: float | None = None,
+        include_boundary: bool = True,
     ) -> float:
         """测量圆形 Agent 沿一条相对射线可安全行进的像素距离。"""
         agent = self.environment.agent
@@ -351,30 +453,29 @@ class AgentPerception:
             math.cos(agent.heading + relative_bearing),
             math.sin(agent.heading + relative_bearing),
         )
-        end = start + direction * self.sensor_range
+        ray_range = self.sensor_range if max_distance is None else max_distance
+        end = start + direction * ray_range
         # 将边界内缩、障碍物外扩同一 clearance，相当于让圆形 Agent 走点射线。
         margin = self.gap_safety_margin if safety_margin is None else safety_margin
         clearance = math.ceil(agent.radius + margin)
-        # 安全世界是原世界向内收缩 clearance 后的矩形。
-        safe_world = pygame.Rect(
-            clearance,
-            clearance,
-            self.environment.world_size[0] - 2 * clearance,
-            self.environment.world_size[1] - 2 * clearance,
-        )
-
-        # clipline 返回射线位于安全世界内部的线段；为空表示起点已经不安全。
-        clipped = safe_world.clipline((start.x, start.y), (end.x, end.y))
-        if not clipped:
-            return 0.0
-
-        free_distance = self.sensor_range
-        if not safe_world.collidepoint(end.x, end.y):
-            # 射线先撞世界边界时，以裁剪线段终点作为当前上限。
-            free_distance = min(
-                free_distance,
-                (pygame.Vector2(clipped[1]) - start).length(),
+        free_distance = ray_range
+        if include_boundary:
+            # Legacy safety sector/gap 把 Boundary 作为可通行约束；Research Hazard
+            # lidar 则显式跳过这里，由独立 BoundaryPerception 表达边界净空。
+            safe_world = pygame.Rect(
+                clearance,
+                clearance,
+                self.environment.world_size[0] - 2 * clearance,
+                self.environment.world_size[1] - 2 * clearance,
             )
+            clipped = safe_world.clipline((start.x, start.y), (end.x, end.y))
+            if not clipped:
+                return 0.0
+            if not safe_world.collidepoint(end.x, end.y):
+                free_distance = min(
+                    free_distance,
+                    (pygame.Vector2(clipped[1]) - start).length(),
+                )
 
         ray_end = start + direction * free_distance
         # Rect.inflate 接收总增量，所以宽高各增加 2*clearance，四边各扩一份。

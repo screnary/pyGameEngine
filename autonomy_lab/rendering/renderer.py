@@ -193,12 +193,24 @@ class PygameRenderer:
                 f"Noise: {environment.current_noise_level:.1f} px    "
                 f"Phase: {environment.current_context_phase}"
             )
+        if environment.perception.sensing_profile == "research":
+            goal = environment.perception.snapshot.goal
+            nearest = environment.perception.snapshot.hazard.nearest_clearance
+            lines.append(
+                "Research sensing: 360 deg / 16 bins    "
+                f"Goal sensed: {goal.sensed}    "
+                f"Nearest hazard: "
+                f"{'none' if nearest is None else f'{nearest:.1f} px'}"
+            )
         return lines
 
     def _draw_fov(self, environment: "Environment") -> None:
         """绘制感知配置的扇形提示；真实感知仍由 AgentPerception 计算。"""
         sensor = environment.scene_config.get("sensor")
         if not sensor:
+            return
+        if environment.perception.sensing_profile == "research":
+            self._draw_research_sensing(environment)
             return
         sensor_range = float(sensor["range"])
         half_fov = math.radians(float(sensor["fov_degrees"])) / 2.0
@@ -219,4 +231,38 @@ class PygameRenderer:
         overlay = pygame.Surface(environment.world_size, pygame.SRCALPHA)
         pygame.draw.polygon(overlay, (70, 155, 255, 30), points)
         pygame.draw.lines(overlay, (90, 175, 255, 75), False, points, 1)
+        self.screen.blit(overlay, (0, 0))
+
+    def _draw_research_sensing(self, environment: "Environment") -> None:
+        """轻量显示 Research Goal/Hazard 量程与 16 条实测 sector 射线。"""
+        perception = environment.perception
+        center = environment.agent.position
+        center_point = (round(center.x), round(center.y))
+        overlay = pygame.Surface(environment.world_size, pygame.SRCALPHA)
+        pygame.draw.circle(
+            overlay,
+            (75, 220, 150, 55),
+            center_point,
+            round(perception.goal_range),
+            1,
+        )
+        pygame.draw.circle(
+            overlay,
+            (255, 180, 70, 65),
+            center_point,
+            round(perception.hazard_range),
+            1,
+        )
+        for sector in perception.snapshot.hazard.sector_ranges:
+            angle = environment.agent.heading + sector.bearing
+            endpoint = center + pygame.Vector2(
+                math.cos(angle), math.sin(angle)
+            ) * sector.clearance
+            pygame.draw.line(
+                overlay,
+                (255, 180, 70, 34),
+                center_point,
+                (round(endpoint.x), round(endpoint.y)),
+                1,
+            )
         self.screen.blit(overlay, (0, 0))

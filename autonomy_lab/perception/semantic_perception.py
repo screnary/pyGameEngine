@@ -35,7 +35,8 @@ class GoalPerception:
     """描述当前传感器或实验模式允许 Controller 知道的任务目标信息。
 
     Attributes:
-        sensed: Goal 是否满足当前传感器的 range、FOV 和光学 LOS 条件。
+        sensed: Goal 是否满足当前 sensing profile 的条件。Legacy 使用
+            range/FOV/LOS；Research 只使用 360° finite-range gate。
         visible: 兼容现有视觉可见性语义；当前实现中与 ``sensed`` 相同。
         available: Controller 是否可以使用距离和方位。在 ground-truth 模式下，
             即使 ``sensed`` 为 False，本字段仍可能为 True。
@@ -43,6 +44,7 @@ class GoalPerception:
         distance: Agent 圆心到 Goal 的距离，单位为像素；不可用时为 None。
         bearing: Goal 相对当前 heading 的有符号方位，单位为弧度。
         unavailable_reason: 不可感知原因，例如超出 range、FOV 或被遮挡。
+        sector_index: Research 360° goal lidar 的离散方向；legacy 或不可用时为 None。
 
     Goal 只回答“目标在哪里、是否被感知”，不回答 Agent 身体能否沿该方向通过。
     footprint-aware 可通行性属于 ``HazardPerception``，两种语义不得混合。
@@ -55,6 +57,7 @@ class GoalPerception:
     distance: float | None
     bearing: float | None
     unavailable_reason: str
+    sector_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -77,10 +80,12 @@ class HazardObservation:
 
 @dataclass(frozen=True)
 class SectorRange:
-    """一个 Agent 相对方向上的 footprint-aware 可安全行进距离。
+    """从已覆盖局部 Hazard 派生的一个方向上的可安全行进距离。
 
-    ``bearing`` 单位为弧度；``clearance`` 单位为像素，并已同时考虑 Agent 半径、
-    局部 Hazard 和 World Boundary。它描述 free-space，不参与 Goal 是否可见的判断。
+    ``bearing`` 单位为弧度；``clearance`` 单位为像素，并已考虑 Agent 半径。
+    Research profile 中它只表示 Hazard lidar，不编码 Boundary；legacy profile
+    保留历史的 Hazard + World Boundary 安全净空。它是 Action steering 使用的
+    local free-space representation，不是 Condition 的风险判定变量。
     """
 
     bearing: float
@@ -106,8 +111,9 @@ class NavigationGap:
 class HazardPerception:
     """供局部导航安全决策使用的 Hazard 与 free-space 信息。
 
-    ``visible_hazards`` 保存传感器范围内的相对 Hazard 观测；``sector_ranges``
-    保存 R0.1 的全方向安全净空；gap 字段保存由连续开放射线得到的局部入口。
+    三层职责依次为：sensor coverage 决定 ``visible_hazards``；object-level
+    semantics 用 ``nearest_hazard`` 回答最近风险的位置；``sector_ranges`` 则给
+    handcrafted Action 提供局部 free-space。gap 字段保存额外的局部入口派生量。
     ``goal_direction_blocked`` 只表示 Goal 方向的路径净空不足，不会反过来改变
     ``GoalPerception.sensed`` 或 ``GoalPerception.visible``。
     """
