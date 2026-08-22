@@ -13,6 +13,11 @@ DEFAULT_BT_CONFIG = {
     "target_reached_distance": 30.0,
     "avoid_duration": 0.9,
     "avoid_throttle": 0.75,
+    # R0.10 fixed safety Action 参数；Research 路径使用，legacy Action 分支保持原行为。
+    "avoid_alignment_threshold_degrees": 35.0,
+    "avoid_turn_gain_degrees": 45.0,
+    "recovery_alignment_threshold_degrees": 35.0,
+    "recovery_turn_gain_degrees": 45.0,
     "search_throttle": 0.0,
     "search_turn": 0.25,
     "gap_ray_count": 31,

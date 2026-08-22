@@ -142,31 +142,107 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
-R0.8 Research Sensing Semantics & Hazard Range Calibration completed:
+R0.12 Context-Dependent Threshold Necessity completed:
 
-* calibration sampled five Research families over seeds 1001-1050, for 250
-  reproducible `family + seed` initial states, without running a Controller or training
-* Goal geometry is shared across the five families for a given seed, so Goal sensing
-  rates represent 50 unique Goal geometries rather than 250 independent layouts
-* the original `hazard_range=700 px` produced 100% Hazard availability, mean
-  visible count 3.000, and 100% all-Hazards-visible rate, so it was effectively global
-* candidate ranges 200/300/400/500/700 px were compared; 300 px was selected
-  because it retained 92% availability and mean count 1.100 while all-visible stayed 0%
-* the original 700 px Goal range sensed only 54% of the sampled initial states;
-  Research Goal range is now 850 px and covers 100%, preserving a stable task signal
-* Research sensing now has three documented roles: sensor coverage selects visible
-  Hazards, nearest clearance/bearing are object semantics, and 16 sectors are a
-  local free-space representation for handcrafted steering
-* `HazardRisk` remains `nearest_clearance < theta_hazard`; it does not consume the
-  full sector vector, while `AvoidHazard` continues to use nearest bearing/sectors
-* finite-range gating still precedes seeded noise, and Boundary remains independent
-* fixed legacy M4/M5 FOV/LOS, 13-D Observation, PPO/Hybrid checkpoints, and
-  historical evaluation paths remain unchanged
-* `scripts.evaluation.analyze_hazard_sensing_range` reproduces the calibration and
-  writes an independent JSON without changing ExperimentRecorder
+* evaluation-only paired contexts reuse each `dynamic_hazard` seed's Agent, Goal,
+  static/dynamic Hazard geometry, size, count, and heading; the sole context variable is
+  dynamic Hazard speed at 36 px/s (Low Risk) versus 180 px/s (High Dynamic Risk)
+* the fixed grid 20/30/40/45/60/75/90 px establishes that 45 px was not the legal lower
+  bound; `ConditionParameters` still permits 0 px and the frozen default remains 90 px
+* normalized Hazard Proximity Exposure is evaluated per real 60 Hz step as zero when no
+  Hazard is sensed, otherwise `(1 - max(clearance, 0) / 300)^2`; it reads Semantic
+  nearest clearance and is never consumed by Reward, Condition, Action, or adaptation
+* over paired seeds 1001-1050, Low Risk prefers 45 px: 98% success, 0% collision episode,
+  0.5913 exposure, and 34.0% Avoid occupancy; High Dynamic Risk prefers 20 px: 100%
+  success, 28% collision episode, 0.6189 exposure, and 23.7% Avoid occupancy
+* the analysis-only fixed score `success - collision_episode - 1.0 * exposure` has a
+  bidirectional preference margin above 0.02, so no tested static threshold dominates
+  both contexts; the direction is not the assumed high-risk→larger-threshold relation
+* fast-Hazard collision instead rises to 36% at 45 px and 60% at 90 px; this is
+  consistent with longer reactive-avoidance interaction with the moving Hazard, but
+  R0.12 does not claim that correlation as a proven causal mechanism
+* because the paired static crossing passed its gate, a Low→High→Low evaluation was run:
+  in the High phase, 20 px yields 18.2% collision episodes and 20.3% Avoid occupancy,
+  versus 36.8% and 40.9% at 45 px; in the first Low phase, 45 px again has zero
+  collision and lower exposure than 20 px
 
-R0.8 is **COMPLETE**. Condition-RL, Safety-Gym dependencies/adapters, Search,
-memory, new rewards, new scenario families, PPO retraining, and M6 were not started.
+R0.12 is **COMPLETE** as **Case A — Context Dependence Supported**. H3 is supported,
+Fixed Actions remain frozen, and the tested operating contexts provide direct evidence
+for an online Condition adaptation experiment. M6.1 is ready, but no M6 code or RL
+training was started and no default threshold was changed.
+
+### Previous Milestone Record — R0.11
+
+R0.11 Switching Bottleneck Attribution completed:
+
+* a new evaluation-only entry sweeps runtime `hazard_threshold` over
+  45/63/76.5/90/103.5/117/135 px while keeping the 40 px Boundary and 30 px Goal
+  thresholds fixed; no default parameter or BT definition is changed
+* all seven thresholds reuse the five Research families and paired seeds 1001-1050,
+  producing 250 episodes per threshold and 1750 episodes in total
+* overall success falls monotonically from 96.4% at 45 px to 30.8% at 135 px,
+  timeout rises from 3.6% to 69.2%, and mean AvoidHazard occupancy rises from 34.4%
+  to 68.2%; the unchanged 90 px default exactly reproduces R0.10's 155/250 result
+* timeout episodes increasingly allocate control to AvoidHazard (55.6% at 45 px,
+  69.6% at 135 px) while MoveToGoal occupancy falls from 42.2% to 28.3%
+* switching diagnostics include HazardRisk activation count, three Action occupancy
+  ratios, branch switches, longest continuous avoidance, and context-shift phase data,
+  all measured in real 60 Hz simulation/BT steps
+* the result supports **Case A — Switching bottleneck supported**: a fixed 45 px
+  threshold reaches 96.4% success, so the R0.10 end-to-end regression is not mainly
+  caused by insufficient isolated Action competence
+* the proposed monotonic safety-efficiency tradeoff is not supported: collision episode
+  rate is non-monotonic (4.8%-8.4%), and all five families select 45 px for both best
+  success and the analysis-only balanced score; no context-dependent static optimum is
+  demonstrated by this sweep
+
+R0.11 is **COMPLETE**. Fixed Actions are freeze-ready and the Action-substrate
+precondition for M6.1 is met, but this result alone does not demonstrate that online
+adaptation is preferable to a better static threshold. No default was tuned, and no
+M6 code, PPO training, reward, topology, perception, or scenario change was added.
+
+### Previous Milestone Record — R0.10
+
+R0.10 Fixed Action Safety Stabilization assessed:
+
+* Research `SafeBoundaryRecovery` now suppresses throttle while the selected safe
+  bearing differs from Agent heading by more than 35 degrees, then resumes its fixed
+  recovery throttle after alignment
+* Research `AvoidHazard` combines independent Hazard sector clearance and directional
+  Boundary clearance when selecting a local escape bearing; it locks one safe side,
+  turns before driving, and rechecks nearby candidate sectors each tick
+* both Actions consume only `SemanticPerception` and shared BT context; Hazard sectors
+  still exclude Boundary, and no World obstacle list or privileged geometry is read
+* fixed parameters are centralized in scene behavior config: 35-degree alignment
+  gates and 45-degree turn gains; legacy `ObstacleThreat` avoidance and 12-sector
+  boundary behavior retain their previous command path
+* unchanged R0.9 micro-scenarios now produce `MoveToGoal 5/5`, `Stop 2/2`,
+  `AvoidHazard 6/6`, and `SafeBoundaryRecovery 7/7`, with zero collision events and
+  no steering-sign oscillation in the two safety Actions
+* the same five families and seeds 1001-1050 reduce mean collision events to
+  static 0.02, dense 0.32, dynamic 0.48, noisy 0.00, and context shift 0.48
+* however end-to-end success changes from 191/250 to 155/250: static 86%, dense 18%,
+  dynamic 70%, noisy 68%, context shift 68%; the conservative reactive avoidance
+  dominates dense episodes and causes timeout rather than collision
+
+R0.10 is **NOT COMPLETE** under its full acceptance criteria. Local safety Action
+competence is stabilized, but the complete fixed Action substrate is **not freeze-ready**
+because end-to-end navigation regressed substantially. M6 and Condition-RL remain
+blocked and were not started.
+
+### Previous Milestone Record — R0.9
+
+R0.9 established the unchanged micro and 250-episode competence baseline:
+`MoveToGoal 5/5`, `Stop 2/2`, `AvoidHazard 3/6`, `SafeBoundaryRecovery 0/7`, and
+overall Research BT success 191/250. Its independent evaluation entry remains
+`scripts.evaluation.eval_action_competence`.
+
+### Previous Milestone Record — R0.8
+
+R0.8 calibrated Research Goal/Hazard sensing to 850/300 px over five families and
+seeds 1001-1050. Goal remains a stable long-range task signal, Hazard sensing remains
+local, 16 sectors remain the handcrafted steering representation, and legacy M4/M5
+perception and 13-D PPO Observation remain frozen.
 
 ### Previous Milestone Record — R0.7
 

@@ -173,6 +173,11 @@ class SemanticOnlyResearchActionTests(unittest.TestCase):
                 "target_reached_distance": 30.0,
                 "avoid_duration": 0.9,
                 "avoid_throttle": 0.75,
+                # R0.10 fixed Action 参数仍由 BT context 提供；这不会引入 World。
+                "avoid_alignment_threshold_degrees": 35.0,
+                "avoid_turn_gain_degrees": 45.0,
+                "recovery_alignment_threshold_degrees": 35.0,
+                "recovery_turn_gain_degrees": 45.0,
             },
             condition_parameters=ConditionParameters(),
         )

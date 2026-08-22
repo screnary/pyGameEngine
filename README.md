@@ -60,7 +60,11 @@ project_root/
 │       ├── eval_m43_generalization.py
 │       ├── eval_m51_hybrid.py
 │       ├── eval_m52_hybrid.py
-│       └── eval_m53_final.py
+│       ├── eval_m53_final.py
+│       ├── analyze_hazard_sensing_range.py
+│       ├── eval_action_competence.py  # R0.9/R0.10 fixed Action competence
+│       ├── eval_condition_threshold_sensitivity.py  # R0.11 switching sweep
+│       └── eval_context_threshold_necessity.py  # R0.12 paired contexts
 │
 ├── bt_configs/
 │   ├── default.json                # 原手工 BT baseline
@@ -443,6 +447,210 @@ Testbed 使用 long-range Goal + local Hazard；未来 Safety-Gym external bench
 保留其原生 sensing。两者只要求在 `SemanticPerception`、Condition 参数、BT 语义、
 adaptation algorithm 和评价指标层对齐，不强求 raw lidar、量程、尺度或物理一致。
 
+## R0.9 Fixed Action Competence Validation
+
+R0.9 不训练模型，也不修改 Action/Condition/BT。评估入口直接复用真实
+`SemanticPerception`、Action Node、`AgentCommand` 和 `Environment.step()`：
+
+```powershell
+conda run -n pygame_lab python -m scripts.evaluation.eval_action_competence
+```
+
+如只需快速复查确定性的 Action micro-scenarios：
+
+```powershell
+conda run -n pygame_lab python -m scripts.evaluation.eval_action_competence --isolated-only
+```
+
+隔离结果为：`MoveToGoal 5/5`、`Stop 2/2`、`AvoidHazard 3/6`、
+`SafeBoundaryRecovery 0/7`。Boundary Recovery 用例最终可以回到 40 px 安全净空，
+但从贴近边界且朝外的状态恢复时产生 collision event，因此按严格无碰撞标准失败；
+AvoidHazard 在近距离/宽 Hazard 及靠近下边界的用例中同样发生碰撞。
+
+默认 Research BT 在五个 family、seeds `1001–1050` 上的 success rate 为：
+`static_random 76%`、`dense_hazard 64%`、`dynamic_hazard 82%`、
+`noisy_perception 78%`、`context_shift 82%`；未成功 episode 均因 20 s timeout。
+因此 R0.9 validation 已完成，但当前 fixed Action substrate 尚不建议冻结为 M6.1
+前置 baseline。详细结果写入：
+
+```text
+experiments/analysis/r09_action_competence.json
+experiments/analysis/r09_action_competence.csv
+```
+
+## R0.10 Fixed Action Safety Stabilization
+
+R0.10 只调整 Research 路径中的 `AvoidHazard` 与 `SafeBoundaryRecovery`：
+
+- `SafeBoundaryRecovery` 在安全 bearing 与当前 heading 相差超过 35° 时令
+  `throttle=0`，先完成转向，再恢复固定 recovery throttle。
+- `AvoidHazard` 在 Action 层将独立的 Hazard sector clearance 与 directional
+  Boundary clearance 合并评分，锁定本次安全绕行侧；未对齐时先转向，对齐后推进。
+- 固定参数集中在 scene behavior config：Avoid/Recovery alignment threshold 均为
+  35°，turn gain 均为 45°。Condition、BT topology、Perception 与 Scenario 未改。
+
+原 R0.9 微场景复测结果：
+
+```text
+MoveToGoal            5/5, collisions=0
+Stop                  2/2, collisions=0
+AvoidHazard           6/6, collisions=0
+SafeBoundaryRecovery  7/7, collisions=0
+```
+
+相同五个 family、seeds `1001–1050` 的端到端结果：
+
+| Family | R0.9 success | R0.10 success | R0.10 collision episode rate |
+|---|---:|---:|---:|
+| static_random | 76% | 86% | 2% |
+| dense_hazard | 64% | 18% | 10% |
+| dynamic_hazard | 82% | 70% | 16% |
+| noisy_perception | 78% | 68% | 0% |
+| context_shift | 82% | 68% | 14% |
+
+安全 Action 的局部碰撞缺陷已消除，但完整 reactive BT 的 overall success 从
+`191/250` 降为 `155/250`，尤其 dense family 长期被保守避障抢占并 timeout。
+因此 R0.10 未满足完整验收条件，fixed Action substrate 暂不冻结，也不进入 M6.1。
+R0.10 输出位于：
+
+```text
+experiments/analysis/r010_action_competence.json
+experiments/analysis/r010_action_competence.csv
+```
+
+## R0.11 Switching Bottleneck Attribution
+
+R0.11 不修改 Action、Condition、BT topology、Perception 或场景，只在每个
+evaluation episode 构建 Research BT 时覆盖运行时 `hazard_threshold`：
+
+```powershell
+conda run -n pygame_lab python -m scripts.evaluation.eval_condition_threshold_sensitivity
+```
+
+固定 sweep 为 `45, 63, 76.5, 90, 103.5, 117, 135 px`，每个阈值复用五个
+Research family 和 seeds `1001–1050`，即每个阈值 250 个 paired episodes。
+`boundary_threshold=40 px`、`goal_threshold=30 px` 与默认参数文件始终不变。
+
+| θ_hazard | Success | Timeout | Collision episode | AvoidHazard ratio |
+|---:|---:|---:|---:|---:|
+| 45.0 | 96.4% | 3.6% | 4.8% | 34.4% |
+| 63.0 | 84.0% | 16.0% | 8.4% | 41.3% |
+| 76.5 | 74.8% | 25.2% | 6.8% | 46.5% |
+| 90.0 | 62.0% | 38.0% | 8.4% | 53.4% |
+| 103.5 | 49.6% | 50.4% | 8.0% | 60.2% |
+| 117.0 | 46.0% | 54.0% | 8.4% | 64.1% |
+| 135.0 | 30.8% | 69.2% | 5.6% | 68.2% |
+
+结果支持 **Case A — Switching bottleneck supported**：仅改变 switching boundary
+即可显著改变 success、timeout 和 branch occupancy，45 px 下固定 Actions 已达到
+96.4% overall success，因此 R0.10 的端到端下降不能主要归因于局部 Action
+competence。不支持预设的单调 safety–efficiency tradeoff：collision episode rate
+没有随阈值升高而持续下降；五个 family 的 success/balanced choice 也都为 45 px，
+所以本轮没有得到 context-dependent static optimum 的证据。该值仅作为分析结果，
+没有写回默认配置。
+
+输出：
+
+```text
+experiments/analysis/r011_threshold_sensitivity.json
+experiments/analysis/r011_threshold_sensitivity.csv
+experiments/analysis/r011_threshold_sensitivity_episodes.csv
+```
+
+## R0.12 Context-Dependent Threshold Necessity
+
+R0.12 复用同一 `dynamic_hazard` seed 的 Agent、Goal、静态/动态 Hazard 几何，
+只把动态 Hazard speed 设为 `36 px/s`（Low Risk）或 `180 px/s`（High Dynamic
+Risk）。两个 context 使用完全相同的 `20/30/40/45/60/75/90 px` threshold grid
+和 seeds `1001–1050`：
+
+```powershell
+conda run -n pygame_lab python -m scripts.evaluation.eval_context_threshold_necessity
+```
+
+`hazard_exposure` 是只用于 evaluation 的连续 Hazard Proximity Exposure：
+
+```text
+q_t = 0                                           if no Hazard is sensed
+q_t = max(0, 1 - max(clearance, 0) / 300)^2       otherwise
+hazard_exposure = mean(q_t over simulation steps)
+```
+
+它读取 Semantic nearest Hazard clearance，不进入 Reward、Condition、Action 或
+参数更新。主要静态 context 结果：
+
+| Context | θ | Success | Collision | Exposure | Min clearance | Avoid ratio | Mean time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Low | 20 | 98% | 8% | 0.6386 | 12.7 | 24.4% | 6.13 s |
+| Low | 30 | 96% | 4% | 0.6259 | 16.8 | 29.2% | 6.81 s |
+| Low | 40 | 98% | 4% | 0.6078 | 22.4 | 32.6% | 7.42 s |
+| Low | 45 | 98% | 0% | 0.5913 | 24.7 | 34.0% | 7.55 s |
+| Low | 60 | 90% | 0% | 0.5569 | 29.3 | 40.5% | 9.37 s |
+| Low | 75 | 82% | 0% | 0.5277 | 30.9 | 47.5% | 11.14 s |
+| Low | 90 | 72% | 2% | 0.5032 | 27.6 | 54.4% | 13.87 s |
+| High | 20 | 100% | 28% | 0.6189 | 12.8 | 23.7% | 5.28 s |
+| High | 30 | 96% | 32% | 0.6114 | 15.0 | 28.4% | 6.08 s |
+| High | 40 | 98% | 36% | 0.5948 | 16.3 | 33.0% | 6.41 s |
+| High | 45 | 98% | 36% | 0.5860 | 17.3 | 35.2% | 6.76 s |
+| High | 60 | 96% | 36% | 0.5619 | 20.4 | 40.4% | 7.52 s |
+| High | 75 | 82% | 46% | 0.5533 | 15.5 | 50.7% | 10.34 s |
+| High | 90 | 66% | 60% | 0.5519 | 9.7 | 59.7% | 13.07 s |
+
+固定 diagnostic score 为 `success − collision_episode − 1.0 × exposure`。Low
+Risk 首选 `45 px`，High Dynamic Risk 首选 `20 px`，且两者对对方 threshold 的
+score advantage 均超过固定 `0.02` crossing criterion。方向是反直觉的：fast
+Hazard 下更早、持续更久的 reactive avoidance 没有减少 collision；结果与更长的
+移动 Hazard 交互时间一致，但本轮不把相关性解释为已证明的因果机制。该结果不能
+简化成“风险越高 θ 越大”。
+
+静态 crossing 成立后才执行 Low→High→Low。High phase 中 `20 px` 的 collision
+episode rate 为 18.2%、Avoid ratio 为 20.3%；`45 px` 分别为 36.8% 和 40.9%。
+Low phase 1 中则由 `45 px` 获得 0% collision 和更低 exposure，重复验证了方向
+切换。Low phase 2 的样本数会受到前两阶段提前成功影响，应结合原始 episode
+数据解释。
+
+因此 R0.12 归类为 **Case A — Context Dependence Supported**：不存在统一支配
+两个 tested contexts 的固定 threshold，H3 得到支持。输出：
+
+```text
+experiments/analysis/r012_context_threshold_necessity.json
+experiments/analysis/r012_context_threshold_necessity.csv
+experiments/analysis/r012_context_threshold_episodes.csv
+```
+
+### R0.10/R0.11 场景可视化
+
+现有场景 demo 会加载同一棵 Research BT。可分别指定 45 px 与 135 px，直观比较
+较晚/较早进入 `AvoidHazard` 时的分支占用差异：
+
+```powershell
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dense_hazard --seed 1001 --hazard-threshold 45
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dense_hazard --seed 1001 --hazard-threshold 135
+```
+
+其他可观察 family：
+
+```bash
+# 普通静态障碍导航
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family static_random --seed 1001
+
+# 密集障碍，适合观察 R0.10 的保守/卡住失败模式
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dense_hazard --seed 1001
+
+# 动态障碍
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 1001
+
+# 上下文变化
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family context_shift --seed 1001
+
+# 感知噪声
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family noisy_perception --seed 1001
+
+# 狭窄通道
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family narrow_passage --seed 901
+
+```
+
 ## Script Entry Points
 
 非交互式入口位于 `scripts/`：
@@ -459,6 +667,9 @@ conda run -n pygame_lab python -m scripts.training.train_hybrid_ppo --help
 conda run -n pygame_lab python -m scripts.evaluation.eval_m52_hybrid --help
 conda run -n pygame_lab python -m scripts.evaluation.eval_m53_final --help
 conda run -n pygame_lab python -m scripts.evaluation.analyze_hazard_sensing_range --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_action_competence --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_condition_threshold_sensitivity --help
+conda run -n pygame_lab python -m scripts.evaluation.eval_context_threshold_necessity --help
 ```
 
 ## Simulation and Rendering Boundary

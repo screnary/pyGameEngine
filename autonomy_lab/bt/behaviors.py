@@ -25,12 +25,38 @@ from .context import BehaviorBuildContext
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def boundary_clearance_for_bearing(snapshot: Any, bearing: float) -> float:
+    """仅用 Semantic Boundary 估算沿相对方向可前进的边界净空。
+
+    BoundaryPerception 的四个值已经扣除 Agent footprint。把相对 bearing
+    转成世界方向后，分别计算到水平/垂直边界的射线距离并取较小值。该函数不读取
+    World 尺寸、Obstacle Rect 或未来轨迹，也不会把 Boundary 混入 Hazard sector。
+    """
+    boundary = snapshot.boundary
+    if not boundary.available:
+        return math.inf
+    heading = snapshot.agent.heading + normalise_angle(bearing)
+    direction_x = math.cos(heading)
+    direction_y = math.sin(heading)
+    distances: list[float] = []
+    if direction_x < -1e-9:
+        distances.append(boundary.left / -direction_x)
+    elif direction_x > 1e-9:
+        distances.append(boundary.right / direction_x)
+    if direction_y < -1e-9:
+        distances.append(boundary.top / -direction_y)
+    elif direction_y > 1e-9:
+        distances.append(boundary.bottom / direction_y)
+    return max(0.0, min(distances, default=math.inf))
+
+
 def choose_safe_steering(
     snapshot: Any,
     desired_bearing: float,
     alignment_penalty: float = 90.0,
     candidate_bearings: tuple[float, ...] | None = None,
     turn_sign: float = 0.0,
+    include_boundary: bool = False,
 ) -> float:
     """从局部扇区中选择兼顾期望方向和安全净空的相对转向角。
 
@@ -71,7 +97,15 @@ def choose_safe_steering(
             normalise_angle(sector.bearing - desired_bearing)
         )
         # alignment_penalty 的单位是 px：完全反向最多扣除该数值。
-        safety_score = sector.clearance - alignment_penalty * (
+        usable_clearance = sector.clearance
+        if include_boundary:
+            # Hazard sector 与 Boundary 仍是两份独立语义；只在 Action 选择阶段取
+            # 两种净空的较小值，避免安全转向驶入另一类风险。
+            usable_clearance = min(
+                usable_clearance,
+                boundary_clearance_for_bearing(snapshot, sector.bearing),
+            )
+        safety_score = usable_clearance - alignment_penalty * (
             alignment_error / math.pi
         )
         # 后两项只用于分数相同时给出稳定且接近期望方向的选择。
@@ -436,13 +470,22 @@ class TargetAlignedGap(AgentCondition):
 
 
 class AvoidObstacle(AgentAction):
-    """在固定时长内输出远离威胁的转向命令。
+    """输出远离威胁的转向命令；Research 路径同时约束 Boundary。
 
-    该 Action 是有状态的：``remaining`` 跨 tick 递减。Controller 每帧在 tick
-    前写入 ``dt``，因为 py_trees 的 update() 本身没有时间参数。
+    Legacy ``ObstacleThreat`` 继续保持原来的固定转向行为。Research
+    ``HazardRisk`` 会锁定一个局部 escape heading，并在每个 tick 用当前 Hazard
+    sector 与 Boundary clearance 校验附近候选方向；未对齐时先原地转向。
     """
 
-    allowed_params = frozenset({"condition", "duration", "throttle"})
+    allowed_params = frozenset(
+        {
+            "condition",
+            "duration",
+            "throttle",
+            "alignment_threshold_degrees",
+            "turn_gain_degrees",
+        }
+    )
 
     def __init__(
         self, context: BehaviorBuildContext, name: str, **params: object
@@ -455,9 +498,28 @@ class AvoidObstacle(AgentAction):
         self.command = context.command
         self.duration = self.number_param("duration", "avoid_duration")
         self.throttle = self.number_param("throttle", "avoid_throttle")
+        self.alignment_threshold = math.radians(
+            self.number_param(
+                "alignment_threshold_degrees",
+                "avoid_alignment_threshold_degrees",
+            )
+        )
+        self.turn_gain = math.radians(
+            self.number_param("turn_gain_degrees", "avoid_turn_gain_degrees")
+        )
+        if not 0.0 < self.alignment_threshold <= math.pi / 2.0:
+            raise ValueError(
+                "AvoidObstacle alignment_threshold_degrees must be in (0, 90]"
+            )
+        if self.turn_gain <= 0.0:
+            raise ValueError("AvoidObstacle turn_gain_degrees must be positive")
         self.dt = 0.0
         self.remaining = 0.0
         self.turn_direction = 1.0
+        self.turn_sign = 0.0
+        self.escape_heading: float | None = None
+        # HazardRisk 只存在于新增 Research BT；ObstacleThreat 是冻结 legacy 路径。
+        self.research_safety = isinstance(self.condition, HazardRisk)
 
     def initialise(self) -> None:
         """每次分支重新进入时重置计时，并锁定本次避让方向。"""
@@ -476,18 +538,55 @@ class AvoidObstacle(AgentAction):
             self.context.semantic,
             preferred_bearing,
             candidate_bearings=(-math.pi / 2.0, math.pi / 2.0),
+            include_boundary=self.research_safety,
+        )
+        self.turn_sign = (
+            math.copysign(1.0, safe_bearing)
+            if abs(safe_bearing) > 1e-9
+            else 0.0
+        )
+        self.escape_heading = normalise_angle(
+            self.context.semantic.agent.heading + safe_bearing
         )
         self.turn_direction = max(
-            -1.0, min(1.0, safe_bearing / math.radians(45.0))
+            -1.0, min(1.0, safe_bearing / self.turn_gain)
         )
 
     def update(self) -> py_trees.common.Status:
         """输出本帧命令；计时结束时返回 SUCCESS 让 Sequence 完成。"""
+        if self.research_safety and self.escape_heading is not None:
+            snapshot = self.context.semantic
+            desired_bearing = normalise_angle(
+                self.escape_heading - snapshot.agent.heading
+            )
+            offset = math.radians(45.0)
+            safe_bearing = choose_safe_steering(
+                snapshot,
+                desired_bearing,
+                candidate_bearings=(
+                    desired_bearing,
+                    desired_bearing - offset,
+                    desired_bearing + offset,
+                ),
+                turn_sign=self.turn_sign,
+                include_boundary=True,
+            )
+            self.turn_direction = max(
+                -1.0, min(1.0, safe_bearing / self.turn_gain)
+            )
+            aligned = abs(safe_bearing) <= self.alignment_threshold
+            throttle = self.throttle if aligned else 0.0
+            # duration 只累计实际产生位移的避让阶段。
+            if aligned:
+                self.remaining -= self.dt
+        else:
+            throttle = self.throttle
+            self.remaining -= self.dt
         self.command["turn"] = self.turn_direction
-        self.command["throttle"] = self.throttle
-        self.remaining -= self.dt
+        self.command["throttle"] = throttle
         self.feedback_message = (
-            f"safe steering: turn={self.turn_direction:+.2f}"
+            f"safe steering: turn={self.turn_direction:+.2f}, "
+            f"throttle={throttle:.2f}"
         )
         return (
             py_trees.common.Status.SUCCESS
@@ -504,7 +603,9 @@ class AvoidObstacle(AgentAction):
 class SafeBoundaryRecovery(AgentAction):
     """朝 World 中心转向并低速驶离边界，直到高层 Condition 不再成立。"""
 
-    allowed_params = frozenset({"throttle"})
+    allowed_params = frozenset(
+        {"throttle", "alignment_threshold_degrees", "turn_gain_degrees"}
+    )
 
     def __init__(
         self, context: BehaviorBuildContext, name: str, **params: object
@@ -520,6 +621,26 @@ class SafeBoundaryRecovery(AgentAction):
         if not 0.0 <= self.throttle <= 1.0:
             raise ValueError(
                 "parameter 'throttle' for SafeBoundaryRecovery must be in [0, 1]"
+            )
+        self.alignment_threshold = math.radians(
+            self.number_param(
+                "alignment_threshold_degrees",
+                "recovery_alignment_threshold_degrees",
+            )
+        )
+        self.turn_gain = math.radians(
+            self.number_param(
+                "turn_gain_degrees", "recovery_turn_gain_degrees"
+            )
+        )
+        if not 0.0 < self.alignment_threshold <= math.pi / 2.0:
+            raise ValueError(
+                "SafeBoundaryRecovery alignment_threshold_degrees must be "
+                "in (0, 90]"
+            )
+        if self.turn_gain <= 0.0:
+            raise ValueError(
+                "SafeBoundaryRecovery turn_gain_degrees must be positive"
             )
         self.turn_sign = 0.0
 
@@ -557,6 +678,7 @@ class SafeBoundaryRecovery(AgentAction):
         )
         # 期望的向内方向已有两个 Agent 直径净空时可直接恢复；否则锁定首次
         # 选中的绕障侧，防止相邻扇区分数接近时每帧正负转向互换。
+        research_safety = len(sectors) == 16
         if (
             desired_sector is None
             or desired_sector.clearance >= snapshot.agent.radius * 4.0
@@ -568,16 +690,22 @@ class SafeBoundaryRecovery(AgentAction):
                 snapshot,
                 desired_bearing,
                 turn_sign=self.turn_sign,
+                include_boundary=research_safety,
             )
             if self.turn_sign == 0.0 and abs(safe_bearing) > 1e-9:
                 self.turn_sign = math.copysign(1.0, safe_bearing)
         self.command["turn"] = max(
-            -1.0, min(1.0, safe_bearing / math.radians(45.0))
+            -1.0, min(1.0, safe_bearing / self.turn_gain)
         )
-        self.command["throttle"] = self.throttle
+        # Legacy 12-sector 路径保持原 throttle；Research 16-sector 路径在朝向
+        # 尚未安全对齐时先原地转向，避免恢复动作本身继续制造越界碰撞。
+        aligned = abs(safe_bearing) <= self.alignment_threshold
+        throttle = self.throttle if aligned or not research_safety else 0.0
+        self.command["throttle"] = throttle
         self.feedback_message = (
             f"safe steering: {math.degrees(safe_bearing):+.0f} deg "
-            f"(inward {math.degrees(desired_bearing):+.0f} deg)"
+            f"(inward {math.degrees(desired_bearing):+.0f} deg), "
+            f"throttle={throttle:.2f}"
         )
         return py_trees.common.Status.RUNNING
 
