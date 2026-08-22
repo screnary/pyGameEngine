@@ -27,7 +27,7 @@
       {
         "type": "sequence",
         "name": "Hazard Avoidance",
-        "memory": false,
+        "memory": true,
         "children": [
           {
             "type": "condition",

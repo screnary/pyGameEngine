@@ -68,12 +68,14 @@ class SwitchingDiagnostics:
     def __init__(self) -> None:
         self.total_steps = 0
         self.hazard_risk_activation_count = 0
+        self.avoid_maneuver_count = 0
         self.avoid_active_steps = 0
         self.move_to_goal_active_steps = 0
         self.boundary_active_steps = 0
         self.branch_switch_count = 0
         self._previous_action: str | None = None
         self._hazard_active = False
+        self._avoid_running = False
         self._collision_active = False
         self._continuous_avoid_steps = 0
         self._longest_avoid_steps = 0
@@ -91,11 +93,17 @@ class SwitchingDiagnostics:
         action = controller.active_behavior
         hazard_node = controller.nodes_by_name["Hazard Risk?"]
         hazard_active = hazard_node.status == py_trees.common.Status.SUCCESS
+        avoid_running = (
+            controller.nodes_by_name["Avoid Hazard"].status
+            == py_trees.common.Status.RUNNING
+        )
         collision_event = bool(world.collision_this_step) and not self._collision_active
 
         self.total_steps += 1
         if hazard_active and not self._hazard_active:
             self.hazard_risk_activation_count += 1
+        if avoid_running and not self._avoid_running:
+            self.avoid_maneuver_count += 1
         if self._previous_action is not None and action != self._previous_action:
             self.branch_switch_count += 1
 
@@ -137,6 +145,7 @@ class SwitchingDiagnostics:
 
         self._previous_action = action
         self._hazard_active = hazard_active
+        self._avoid_running = avoid_running
         self._collision_active = bool(world.collision_this_step)
 
     def episode_fields(self) -> dict[str, object]:
@@ -145,6 +154,7 @@ class SwitchingDiagnostics:
         return {
             "simulation_steps": steps,
             "hazard_risk_activation_count": self.hazard_risk_activation_count,
+            "avoid_maneuver_count": self.avoid_maneuver_count,
             "avoid_active_steps": self.avoid_active_steps,
             "avoid_active_time": round(self.avoid_active_steps * SIMULATION_DT, 6),
             "avoid_active_ratio": round(self.avoid_active_steps / denominator, 6),
@@ -276,6 +286,7 @@ def _aggregate(
         "mean_hazard_risk_activation_count": _mean(
             rows, "hazard_risk_activation_count"
         ),
+        "mean_avoid_maneuver_count": _mean(rows, "avoid_maneuver_count"),
         "mean_avoid_active_ratio": _mean(rows, "avoid_active_ratio"),
         "mean_move_to_goal_active_ratio": _mean(
             rows, "move_to_goal_active_ratio"
@@ -568,6 +579,7 @@ SUMMARY_CSV_FIELDS = (
     "mean_path_length",
     "mean_minimum_clearance",
     "mean_hazard_risk_activation_count",
+    "mean_avoid_maneuver_count",
     "mean_avoid_active_ratio",
     "mean_move_to_goal_active_ratio",
     "mean_boundary_active_ratio",
@@ -592,6 +604,7 @@ EPISODE_CSV_FIELDS = (
     "minimum_clearance",
     "simulation_steps",
     "hazard_risk_activation_count",
+    "avoid_maneuver_count",
     "avoid_active_steps",
     "avoid_active_time",
     "avoid_active_ratio",

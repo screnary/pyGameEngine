@@ -142,64 +142,71 @@ Do not build later stages in advance.
 
 ## Current Milestone
 
-R0.12 Context-Dependent Threshold Necessity completed:
+R0.13 Hazard Action Commitment Fix completed:
 
-* evaluation-only paired contexts reuse each `dynamic_hazard` seed's Agent, Goal,
-  static/dynamic Hazard geometry, size, count, and heading; the sole context variable is
-  dynamic Hazard speed at 36 px/s (Low Risk) versus 180 px/s (High Dynamic Risk)
-* the fixed grid 20/30/40/45/60/75/90 px establishes that 45 px was not the legal lower
-  bound; `ConditionParameters` still permits 0 px and the frozen default remains 90 px
-* normalized Hazard Proximity Exposure is evaluated per real 60 Hz step as zero when no
-  Hazard is sensed, otherwise `(1 - max(clearance, 0) / 300)^2`; it reads Semantic
-  nearest clearance and is never consumed by Reward, Condition, Action, or adaptation
-* over paired seeds 1001-1050, Low Risk prefers 45 px: 98% success, 0% collision episode,
-  0.5913 exposure, and 34.0% Avoid occupancy; High Dynamic Risk prefers 20 px: 100%
-  success, 28% collision episode, 0.6189 exposure, and 23.7% Avoid occupancy
-* the analysis-only fixed score `success - collision_episode - 1.0 * exposure` has a
-  bidirectional preference margin above 0.02, so no tested static threshold dominates
-  both contexts; the direction is not the assumed high-risk→larger-threshold relation
-* fast-Hazard collision instead rises to 36% at 45 px and 60% at 90 px; this is
-  consistent with longer reactive-avoidance interaction with the moving Hazard, but
-  R0.12 does not claim that correlation as a proven causal mechanism
-* because the paired static crossing passed its gate, a Low→High→Low evaluation was run:
-  in the High phase, 20 px yields 18.2% collision episodes and 20.3% Avoid occupancy,
-  versus 36.8% and 40.9% at 45 px; in the first Low phase, 45 px again has zero
-  collision and lower exposure than 20 px
+* only the Research BT `Hazard Avoidance` Sequence changed from `memory=false` to
+  `memory=true`; the Loader already supported this field, so no Loader code changed
+* `HazardRisk` remains the unchanged single-threshold start Condition; after it succeeds,
+  the existing `AvoidHazard` RUNNING child now keeps control until the maneuver completes
+* the top-level Priority Selector remains reactive: `Boundary Recovery` immediately
+  preempts a committed Avoid maneuver and terminates `AvoidHazard` as `INVALID`
+* after normal Sequence success, the next visit starts again at `HazardRisk`, so a
+  persistent or newly encountered Hazard can start another maneuver
+* the diagnosed `dynamic_hazard`, seed 1001, 45 px episode changes from 26 to 6 branch
+  switches and 13 to 2 HazardRisk activations; success remains true, collisions remain
+  zero, and path length changes from 1096.15 to 1090.83 px
+* R0.9/R0.10 micro competence remains MoveToGoal 5/5, Stop 2/2, AvoidHazard 6/6, and
+  SafeBoundaryRecovery 7/7 with zero collision events
 
-R0.12 is **COMPLETE** as **Case A — Context Dependence Supported**. H3 is supported,
-Fixed Actions remain frozen, and the tested operating contexts provide direct evidence
-for an online Condition adaptation experiment. M6.1 is ready, but no M6 code or RL
-training was started and no default threshold was changed.
+The full R0.11 and R0.12 evaluators were rerun without changing their threshold grids,
+contexts, families, or seeds. Historical pre-fix artifacts are retained with the
+`_pre_r013` suffix; the canonical result files now use committed execution semantics.
+
+R0.13 is **COMPLETE**. The execution bug is fixed, H2 remains supported, and H3 remains
+supported under the existing paired-static-context criterion. Fixed Actions and the
+Research BT execution semantics are freeze-ready, so the stated M6.1 preconditions are
+met; no M6 code, RL training, threshold tuning, hysteresis, Action, Perception, or
+Scenario change was introduced.
+
+### Previous Milestone Record — R0.12
+
+R0.12 Context-Dependent Threshold Necessity, rerun after R0.13:
+
+* paired contexts still differ only in dynamic Hazard speed: 36 px/s Low Risk versus
+  180 px/s High Dynamic Risk, with the unchanged 20/30/40/45/60/75/90 px grid and
+  seeds 1001-1050
+* the analysis-only score remains `success - collision_episode - 1.0 * exposure`;
+  Low Risk now prefers 60 px (90% success, 0% collision, 0.4866 exposure), while High
+  Dynamic Risk prefers 40 px (98% success, 32% collision, 0.5307 exposure)
+* the two cross-threshold score advantages are 0.1313 and 0.0935, both above the fixed
+  0.02 gate; no tested static threshold dominates both paired contexts
+* Low→High→Low was executed after the static gate passed, but its phase safety metrics
+  did not independently reproduce a clean 60/40 reversal; unequal later-phase episode
+  counts also reflect earlier successes, so that diagnostic is not treated as a second
+  proof of context dependence
+
+R0.12 remains **Case A — Context Dependence Supported** under its predefined static
+crossing rule. H3 is supported with the explicit within-episode limitation above.
 
 ### Previous Milestone Record — R0.11
 
-R0.11 Switching Bottleneck Attribution completed:
+R0.11 Switching Bottleneck Attribution, rerun after R0.13:
 
-* a new evaluation-only entry sweeps runtime `hazard_threshold` over
-  45/63/76.5/90/103.5/117/135 px while keeping the 40 px Boundary and 30 px Goal
-  thresholds fixed; no default parameter or BT definition is changed
-* all seven thresholds reuse the five Research families and paired seeds 1001-1050,
-  producing 250 episodes per threshold and 1750 episodes in total
-* overall success falls monotonically from 96.4% at 45 px to 30.8% at 135 px,
-  timeout rises from 3.6% to 69.2%, and mean AvoidHazard occupancy rises from 34.4%
-  to 68.2%; the unchanged 90 px default exactly reproduces R0.10's 155/250 result
-* timeout episodes increasingly allocate control to AvoidHazard (55.6% at 45 px,
-  69.6% at 135 px) while MoveToGoal occupancy falls from 42.2% to 28.3%
-* switching diagnostics include HazardRisk activation count, three Action occupancy
-  ratios, branch switches, longest continuous avoidance, and context-shift phase data,
-  all measured in real 60 Hz simulation/BT steps
-* the result supports **Case A — Switching bottleneck supported**: a fixed 45 px
-  threshold reaches 96.4% success, so the R0.10 end-to-end regression is not mainly
-  caused by insufficient isolated Action competence
-* the proposed monotonic safety-efficiency tradeoff is not supported: collision episode
-  rate is non-monotonic (4.8%-8.4%), and all five families select 45 px for both best
-  success and the analysis-only balanced score; no context-dependent static optimum is
-  demonstrated by this sweep
+* the unchanged sweep covers 45/63/76.5/90/103.5/117/135 px over five Research
+  families and seeds 1001-1050, producing 1750 episodes
+* overall success falls from 82.0% at 45 px to 18.4% at 135 px, timeout rises from
+  18.0% to 81.6%, and AvoidHazard occupancy rises from 48.4% to 72.2%
+* compared with the pre-fix run, mean branch switches across thresholds fall from
+  37.5-92.2 to 12.2-25.6, HazardRisk activations fall from 18.3-41.7 to 3.1-5.0,
+  and longest continuous avoidance rises from 0.85-1.42 s to 1.38-1.53 s
+* the evaluator still returns **Case A — Switching bottleneck supported**: parameter
+  sensitivity remains material and the best fixed threshold reaches 82% success
+* the new run also meets the evaluator's aggregate safety-efficiency correlation rule,
+  while family preferences still do not establish context dependence in this sweep
 
-R0.11 is **COMPLETE**. Fixed Actions are freeze-ready and the Action-substrate
-precondition for M6.1 is met, but this result alone does not demonstrate that online
-adaptation is preferable to a better static threshold. No default was tuned, and no
-M6 code, PPO training, reward, topology, perception, or scenario change was added.
+R0.11 remains **COMPLETE** and H2 Condition Sensitivity remains supported. The lower
+post-fix success rates are retained rather than tuned away: completing each maneuver
+reduces chattering but increases reactive Avoid occupancy and timeout in some episodes.
 
 ### Previous Milestone Record — R0.10
 

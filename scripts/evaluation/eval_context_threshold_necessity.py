@@ -627,6 +627,7 @@ EPISODE_CSV_FIELDS = (
     "boundary_active_ratio",
     "branch_switch_count",
     "longest_avoid_duration",
+    "avoid_maneuver_count",
     "simulation_steps",
 )
 

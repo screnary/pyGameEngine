@@ -518,6 +518,30 @@ experiments/analysis/r010_action_competence.json
 experiments/analysis/r010_action_competence.csv
 ```
 
+## R0.13 Hazard Action Commitment Fix
+
+Research BT 的 `Hazard Avoidance` Sequence 现在使用 `memory=true`。这只改变
+`py_trees` 的 running-child execution semantics：`HazardRisk` 仍以单阈值决定一次
+maneuver 是否启动；一旦 `AvoidHazard` 返回 `RUNNING`，Sequence 会继续 tick 该
+Action，直到它成功完成。更高优先级的 `Boundary Recovery` 仍可在任意 tick 立即
+抢占，并把运行中的 `AvoidHazard` 正常置为 `INVALID`。
+
+已确认的 `dynamic_hazard / seed=1001 / hazard_threshold=45` episode 对比：
+
+| Metric | 修复前 | 修复后 |
+|---|---:|---:|
+| Success / collision | True / 0 | True / 0 |
+| Branch switches | 26 | 6 |
+| HazardRisk activations | 13 | 2 |
+| Avoid maneuvers | 约 13 次被反复重启 | 2 次完整 maneuver |
+| Longest continuous Avoid | 1.25 s | 1.27 s |
+| Path length | 1096.15 px | 1090.83 px |
+
+因此原案例中的高频切换已被消除，但这不意味着所有场景性能都会自动提高：完整
+R0.11/R0.12 复跑显示，真正执行完避障 commitment 会增加总体 Avoid occupancy，
+部分 episode 因而更容易 timeout。旧结果保存在 `*_pre_r013.*` 快照中，当前标准
+结果文件均为 R0.13 semantics 下重新生成的数据。
+
 ## R0.11 Switching Bottleneck Attribution
 
 R0.11 不修改 Action、Condition、BT topology、Perception 或场景，只在每个
@@ -533,21 +557,21 @@ Research family 和 seeds `1001–1050`，即每个阈值 250 个 paired episode
 
 | θ_hazard | Success | Timeout | Collision episode | AvoidHazard ratio |
 |---:|---:|---:|---:|---:|
-| 45.0 | 96.4% | 3.6% | 4.8% | 34.4% |
-| 63.0 | 84.0% | 16.0% | 8.4% | 41.3% |
-| 76.5 | 74.8% | 25.2% | 6.8% | 46.5% |
-| 90.0 | 62.0% | 38.0% | 8.4% | 53.4% |
-| 103.5 | 49.6% | 50.4% | 8.0% | 60.2% |
-| 117.0 | 46.0% | 54.0% | 8.4% | 64.1% |
-| 135.0 | 30.8% | 69.2% | 5.6% | 68.2% |
+| 45.0 | 82.0% | 18.0% | 8.0% | 48.4% |
+| 63.0 | 68.8% | 31.2% | 8.4% | 55.3% |
+| 76.5 | 52.4% | 47.6% | 9.6% | 61.9% |
+| 90.0 | 36.0% | 64.0% | 8.0% | 66.4% |
+| 103.5 | 27.2% | 72.8% | 5.6% | 68.3% |
+| 117.0 | 22.4% | 77.6% | 3.6% | 69.7% |
+| 135.0 | 18.4% | 81.6% | 4.4% | 72.2% |
 
-结果支持 **Case A — Switching bottleneck supported**：仅改变 switching boundary
-即可显著改变 success、timeout 和 branch occupancy，45 px 下固定 Actions 已达到
-96.4% overall success，因此 R0.10 的端到端下降不能主要归因于局部 Action
-competence。不支持预设的单调 safety–efficiency tradeoff：collision episode rate
-没有随阈值升高而持续下降；五个 family 的 success/balanced choice 也都为 45 px，
-所以本轮没有得到 context-dependent static optimum 的证据。该值仅作为分析结果，
-没有写回默认配置。
+R0.13 semantics 下结果仍支持 **Case A — Switching bottleneck supported**：阈值
+45→135 px 时 success 由 82.0% 降到 18.4%，Avoid occupancy 由 48.4% 升到
+72.2%，H2 Condition Sensitivity 仍成立。与此同时，平均 branch switches 从修复前
+的 37.5–92.2 降为 12.2–25.6，HazardRisk activations 从 18.3–41.7 降为
+3.1–5.0，而 longest continuous Avoid 增至 1.38–1.53 s，说明测到的是阈值对
+完整 maneuver commitment 的影响，不再主要是 Action 被重复中断。45 px 仍是五个
+family 的最佳 success 选择，但该值仅作为分析结果，没有写回默认配置。
 
 输出：
 
@@ -581,33 +605,32 @@ hazard_exposure = mean(q_t over simulation steps)
 
 | Context | θ | Success | Collision | Exposure | Min clearance | Avoid ratio | Mean time |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Low | 20 | 98% | 8% | 0.6386 | 12.7 | 24.4% | 6.13 s |
-| Low | 30 | 96% | 4% | 0.6259 | 16.8 | 29.2% | 6.81 s |
-| Low | 40 | 98% | 4% | 0.6078 | 22.4 | 32.6% | 7.42 s |
-| Low | 45 | 98% | 0% | 0.5913 | 24.7 | 34.0% | 7.55 s |
-| Low | 60 | 90% | 0% | 0.5569 | 29.3 | 40.5% | 9.37 s |
-| Low | 75 | 82% | 0% | 0.5277 | 30.9 | 47.5% | 11.14 s |
-| Low | 90 | 72% | 2% | 0.5032 | 27.6 | 54.4% | 13.87 s |
-| High | 20 | 100% | 28% | 0.6189 | 12.8 | 23.7% | 5.28 s |
-| High | 30 | 96% | 32% | 0.6114 | 15.0 | 28.4% | 6.08 s |
-| High | 40 | 98% | 36% | 0.5948 | 16.3 | 33.0% | 6.41 s |
-| High | 45 | 98% | 36% | 0.5860 | 17.3 | 35.2% | 6.76 s |
-| High | 60 | 96% | 36% | 0.5619 | 20.4 | 40.4% | 7.52 s |
-| High | 75 | 82% | 46% | 0.5533 | 15.5 | 50.7% | 10.34 s |
-| High | 90 | 66% | 60% | 0.5519 | 9.7 | 59.7% | 13.07 s |
+| Low | 20 | 96% | 6% | 0.5624 | 12.7 | 34.9% | 7.49 s |
+| Low | 30 | 92% | 10% | 0.5440 | 14.5 | 40.4% | 8.52 s |
+| Low | 40 | 94% | 12% | 0.5379 | 17.6 | 43.2% | 8.99 s |
+| Low | 45 | 96% | 6% | 0.5188 | 19.5 | 43.3% | 8.91 s |
+| Low | 60 | 90% | 0% | 0.4866 | 26.4 | 50.9% | 10.24 s |
+| Low | 75 | 74% | 6% | 0.4659 | 27.1 | 57.6% | 13.00 s |
+| Low | 90 | 48% | 10% | 0.4610 | 20.2 | 63.7% | 16.01 s |
+| High | 20 | 98% | 38% | 0.5616 | 11.4 | 35.7% | 7.45 s |
+| High | 30 | 92% | 34% | 0.5524 | 13.6 | 40.2% | 8.15 s |
+| High | 40 | 98% | 32% | 0.5307 | 15.9 | 42.7% | 7.58 s |
+| High | 45 | 94% | 34% | 0.5263 | 15.0 | 45.8% | 8.59 s |
+| High | 60 | 90% | 36% | 0.5042 | 15.5 | 52.7% | 10.84 s |
+| High | 75 | 54% | 50% | 0.4984 | 10.1 | 61.3% | 14.10 s |
+| High | 90 | 62% | 54% | 0.4644 | 9.3 | 63.3% | 15.28 s |
 
 固定 diagnostic score 为 `success − collision_episode − 1.0 × exposure`。Low
-Risk 首选 `45 px`，High Dynamic Risk 首选 `20 px`，且两者对对方 threshold 的
-score advantage 均超过固定 `0.02` crossing criterion。方向是反直觉的：fast
-Hazard 下更早、持续更久的 reactive avoidance 没有减少 collision；结果与更长的
-移动 Hazard 交互时间一致，但本轮不把相关性解释为已证明的因果机制。该结果不能
-简化成“风险越高 θ 越大”。
+Risk 首选 `60 px`（score 0.4134），High Dynamic Risk 首选 `40 px`（score
+0.1293）；两者对对方 threshold 的 advantage 分别为 0.1313 和 0.0935，均超过
+固定 `0.02` crossing criterion。方向仍不能简化成“风险越高 θ 越大”。
 
-静态 crossing 成立后才执行 Low→High→Low。High phase 中 `20 px` 的 collision
-episode rate 为 18.2%、Avoid ratio 为 20.3%；`45 px` 分别为 36.8% 和 40.9%。
-Low phase 1 中则由 `45 px` 获得 0% collision 和更低 exposure，重复验证了方向
-切换。Low phase 2 的样本数会受到前两阶段提前成功影响，应结合原始 episode
-数据解释。
+静态 crossing 成立后按原 gate 执行了 Low→High→Low。该 within-episode
+diagnostic 没有独立复现同样清晰的 `60/40 px` preference reversal：High phase
+中 40 px 的 collision/exposure 为 29.5%/0.5735，60 px 为 25.0%/0.5228；Low
+phase 1 中 40 px 为 2.0%/0.5261，60 px 为 0%/0.4884。各 threshold 进入后续
+phase 的 episode 数还会受提前成功影响，因此 H3 结论严格来自固定 paired static
+contexts 的预注册 balanced-score crossing，而不是把 phase 数据解释为独立重复。
 
 因此 R0.12 归类为 **Case A — Context Dependence Supported**：不存在统一支配
 两个 tested contexts 的固定 threshold，H3 得到支持。输出：
@@ -616,6 +639,24 @@ Low phase 1 中则由 `45 px` 获得 0% collision 和更低 exposure，重复验
 experiments/analysis/r012_context_threshold_necessity.json
 experiments/analysis/r012_context_threshold_necessity.csv
 experiments/analysis/r012_context_threshold_episodes.csv
+```
+
+| 假设                             | 证据                                                            | 状态            |
+| ------------------------------ | ------------------------------------------------------------- | ------------- |
+| H1 Action Competence           | AvoidHazard 6/6、BoundaryRecovery 7/7，零碰撞                      | **SUPPORTED** |
+| H2 Condition Sensitivity       | θ 从 45→135 导致 Avoid occupancy 48.4%→72.2%，success 82.0%→18.4% | **SUPPORTED** |
+| H3 Context Dependence          | paired static contexts 中 Low 首选 60 px，High Dynamic 首选 40 px；phase test 未独立复现反转 | **SUPPORTED（有限）** |
+| H4 Online Adaptation Advantage | RL 能否在线逼近 context-appropriate θ                               | **待 M6 验证**   |
+
+```BASH
+# 较晚触发 AvoidHazard
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 1001 --hazard-threshold 20
+
+# Low Risk 中综合表现较好的阈值
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 1001 --hazard-threshold 45
+
+# 默认保守阈值
+conda run -n pygame_lab python -m scripts.demo.demo_scenario_distribution --family dynamic_hazard --seed 1001 --hazard-threshold 90
 ```
 
 ### R0.10/R0.11 场景可视化
